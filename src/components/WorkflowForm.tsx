@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { NodeInfo } from '../types';
 import { createWorkflow } from '../services/socket';
-import { Form, Input, Button, Card, Typography, Row, Col, Divider, Space, message } from 'antd';
+import { Form, Input, Button, Card, Typography, Row, Col, Divider, Space, message, InputNumber } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
@@ -16,64 +16,120 @@ interface FormValues {
   workflowId: string;
 }
 
+// 任务分组接口
+interface TaskGroup {
+  nodeInfoList: NodeInfo[];
+  executionCount: number;
+}
+
 export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormProps) {
   const [form] = Form.useForm();
-  const [nodeInfoList, setNodeInfoList] = useState<NodeInfo[]>([
-    { nodeId: '', fieldName: '', fieldValue: '' }
+  const [taskGroups, setTaskGroups] = useState<TaskGroup[]>([
+    { 
+      nodeInfoList: [{ nodeId: '', fieldName: '', fieldValue: '' }],
+      executionCount: 1
+    }
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 添加一个新的NodeInfo
-  const addNodeInfo = () => {
-    setNodeInfoList([...nodeInfoList, { nodeId: '', fieldName: '', fieldValue: '' }]);
+  // 添加一个新的任务组
+  const addTaskGroup = () => {
+    setTaskGroups([
+      ...taskGroups, 
+      { 
+        nodeInfoList: [{ nodeId: '', fieldName: '', fieldValue: '' }],
+        executionCount: 1
+      }
+    ]);
   };
 
-  // 移除一个NodeInfo
-  const removeNodeInfo = (index: number) => {
-    if (nodeInfoList.length > 1) {
-      const newList = [...nodeInfoList];
-      newList.splice(index, 1);
-      setNodeInfoList(newList);
+  // 删除任务组
+  const removeTaskGroup = (groupIndex: number) => {
+    if (taskGroups.length > 1) {
+      const newGroups = [...taskGroups];
+      newGroups.splice(groupIndex, 1);
+      setTaskGroups(newGroups);
     }
   };
 
-  // 更新NodeInfo属性
-  const updateNodeInfo = (index: number, field: keyof NodeInfo, value: string) => {
-    const newList = [...nodeInfoList];
-    newList[index] = { ...newList[index], [field]: value };
-    setNodeInfoList(newList);
+  // 更新任务组的执行次数
+  const updateExecutionCount = (groupIndex: number, count: number) => {
+    const newGroups = [...taskGroups];
+    newGroups[groupIndex] = { ...newGroups[groupIndex], executionCount: count };
+    setTaskGroups(newGroups);
+  };
+
+  // 添加一个新的NodeInfo到指定任务组
+  const addNodeInfo = (groupIndex: number) => {
+    const newGroups = [...taskGroups];
+    newGroups[groupIndex].nodeInfoList.push({ nodeId: '', fieldName: '', fieldValue: '' });
+    setTaskGroups(newGroups);
+  };
+
+  // 从指定任务组中移除一个NodeInfo
+  const removeNodeInfo = (groupIndex: number, nodeIndex: number) => {
+    const newGroups = [...taskGroups];
+    if (newGroups[groupIndex].nodeInfoList.length > 1) {
+      newGroups[groupIndex].nodeInfoList.splice(nodeIndex, 1);
+      setTaskGroups(newGroups);
+    }
+  };
+
+  // 更新指定任务组中的NodeInfo属性
+  const updateNodeInfo = (groupIndex: number, nodeIndex: number, field: keyof NodeInfo, value: string) => {
+    const newGroups = [...taskGroups];
+    newGroups[groupIndex].nodeInfoList[nodeIndex] = { 
+      ...newGroups[groupIndex].nodeInfoList[nodeIndex], 
+      [field]: value 
+    };
+    setTaskGroups(newGroups);
   };
 
   // 提交表单
   const handleSubmit = (values: FormValues) => {
     const { apiKey, workflowId } = values;
     
-    // 过滤掉不完整的nodeInfo
-    const filteredNodeInfoList = nodeInfoList.filter(
-      node => node.nodeId && node.fieldName && node.fieldValue !== ''
-    );
+    // 验证每个任务组，过滤掉不完整的nodeInfo
+    const validTaskGroups = taskGroups.map(group => {
+      return {
+        ...group,
+        nodeInfoList: group.nodeInfoList.filter(
+          node => node.nodeId && node.fieldName && node.fieldValue !== ''
+        )
+      };
+    }).filter(group => group.nodeInfoList.length > 0 && group.executionCount > 0);
     
-    if (filteredNodeInfoList.length === 0) {
-      message.error('请至少添加一个有效的节点信息');
+    if (validTaskGroups.length === 0) {
+      message.error('请至少添加一个有效的任务组');
       return;
     }
     
     setIsSubmitting(true);
-    
-    // 构建请求对象
-    const requestData = {
-      apiKey,
-      workflowId,
-      nodeInfoList: filteredNodeInfoList
-    };
     
     // 通知父组件API Key已更改
     if (onApiKeyChange) {
       onApiKeyChange(apiKey);
     }
     
-    // 使用Socket.io发送数据
-    createWorkflow(requestData);
+    // 遍历任务组并创建工作流
+    let totalTasksCount = 0;
+    validTaskGroups.forEach(group => {
+      // 根据执行次数创建多个相同的工作流
+      for (let i = 0; i < group.executionCount; i++) {
+        // 构建请求对象
+        const requestData = {
+          apiKey,
+          workflowId,
+          nodeInfoList: group.nodeInfoList
+        };
+        
+        // 使用Socket.io发送数据
+        createWorkflow(requestData);
+        totalTasksCount++;
+      }
+    });
+    
+    message.success(`已创建 ${totalTasksCount} 个工作流任务`);
     
     // 调用回调函数
     onSubmit();
@@ -122,77 +178,126 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         
         <Divider>
           <Space>
-            <Text strong>节点信息</Text>
+            <Text strong>任务组列表</Text>
             <Button 
               type="primary" 
               icon={<PlusOutlined />} 
-              onClick={addNodeInfo} 
+              onClick={addTaskGroup} 
               size="small"
             >
-              添加节点
+              添加任务组
             </Button>
           </Space>
         </Divider>
         
-        {nodeInfoList.map((nodeInfo, index) => (
+        {taskGroups.map((taskGroup, groupIndex) => (
           <Card 
-            key={index} 
+            key={groupIndex} 
             size="small" 
-            className="mb-4"
+            className="mb-6"
             title={
               <div className="flex justify-between items-center">
-                <span>节点 #{index + 1}</span>
-                {nodeInfoList.length > 1 && (
+                <span>任务组 #{groupIndex + 1}</span>
+                {taskGroups.length > 1 && (
                   <Button 
                     danger 
                     icon={<DeleteOutlined />} 
                     size="small"
-                    onClick={() => removeNodeInfo(index)}
+                    onClick={() => removeTaskGroup(groupIndex)}
                   />
                 )}
               </div>
             }
           >
-            <Row gutter={[16, 16]}>
-              <Col span={12}>
-                <Form.Item
-                  label="节点ID"
-                  rules={[{ required: true, message: '请输入节点ID' }]}
-                >
-                  <Input
-                    placeholder="节点ID"
-                    value={nodeInfo.nodeId}
-                    onChange={(e) => updateNodeInfo(index, 'nodeId', e.target.value)}
-                  />
-                </Form.Item>
+            <Row className="mb-4" align="middle">
+              <Col span={18}>
+                <Text strong>执行次数：</Text>
               </Col>
-              <Col span={12}>
-                <Form.Item
-                  label="字段名称"
-                  rules={[{ required: true, message: '请输入字段名称' }]}
-                >
-                  <Input
-                    placeholder="字段名称"
-                    value={nodeInfo.fieldName}
-                    onChange={(e) => updateNodeInfo(index, 'fieldName', e.target.value)}
-                  />
-                </Form.Item>
-              </Col>
-              <Col span={24}>
-                <Form.Item
-                  label="字段值"
-                  rules={[{ required: true, message: '请输入字段值' }]}
-                >
-                  <Input.TextArea
-                    placeholder="字段值"
-                    value={nodeInfo.fieldValue as string}
-                    onChange={(e) => updateNodeInfo(index, 'fieldValue', e.target.value)}
-                    autoSize={{ minRows: 1, maxRows: 6 }}
-                    style={{ resize: 'vertical' }}
-                  />
-                </Form.Item>
+              <Col span={6}>
+                <InputNumber
+                  min={1}
+                  value={taskGroup.executionCount}
+                  onChange={(value) => updateExecutionCount(groupIndex, value || 1)}
+                  style={{ width: '100%' }}
+                />
               </Col>
             </Row>
+
+            <Divider>
+              <Space>
+                <Text>节点信息</Text>
+                <Button 
+                  type="primary" 
+                  icon={<PlusOutlined />} 
+                  onClick={() => addNodeInfo(groupIndex)} 
+                  size="small"
+                >
+                  添加节点
+                </Button>
+              </Space>
+            </Divider>
+            
+            {taskGroup.nodeInfoList.map((nodeInfo, nodeIndex) => (
+              <Card 
+                key={nodeIndex} 
+                size="small" 
+                className="mb-4"
+                title={
+                  <div className="flex justify-between items-center">
+                    <span>节点 #{nodeIndex + 1}</span>
+                    {taskGroup.nodeInfoList.length > 1 && (
+                      <Button 
+                        danger 
+                        icon={<DeleteOutlined />} 
+                        size="small"
+                        onClick={() => removeNodeInfo(groupIndex, nodeIndex)}
+                      />
+                    )}
+                  </div>
+                }
+              >
+                <Row gutter={[16, 16]}>
+                  <Col span={12}>
+                    <Form.Item
+                      label="节点ID"
+                      rules={[{ required: true, message: '请输入节点ID' }]}
+                    >
+                      <Input
+                        placeholder="节点ID"
+                        value={nodeInfo.nodeId}
+                        onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'nodeId', e.target.value)}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={12}>
+                    <Form.Item
+                      label="字段名称"
+                      rules={[{ required: true, message: '请输入字段名称' }]}
+                    >
+                      <Input
+                        placeholder="字段名称"
+                        value={nodeInfo.fieldName}
+                        onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'fieldName', e.target.value)}
+                      />
+                    </Form.Item>
+                  </Col>
+                  <Col span={24}>
+                    <Form.Item
+                      label="字段值"
+                      rules={[{ required: true, message: '请输入字段值' }]}
+                    >
+                      <Input.TextArea
+                        placeholder="字段值"
+                        value={nodeInfo.fieldValue as string}
+                        onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'fieldValue', e.target.value)}
+                        autoSize={{ minRows: 1, maxRows: 6 }}
+                        style={{ resize: 'vertical' }}
+                      />
+                    </Form.Item>
+                  </Col>
+                </Row>
+              </Card>
+            ))}
           </Card>
         ))}
         
