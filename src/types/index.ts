@@ -25,7 +25,8 @@ export enum TaskStatus {
   SUCCESS = 'SUCCESS',
   FAILED = 'FAILED',
   RUNNING = 'RUNNING',
-  QUEUED = 'QUEUED'
+  QUEUED = 'QUEUED',
+  WAITING = 'WAITING'
 }
 
 export interface WorkflowTask {

@@ -187,7 +187,13 @@ export default function PollingTaskList({
                         icon={<ReloadOutlined />} 
                         type="primary" 
                         onClick={() => handleStartPolling(task.taskId)}
-                        disabled={task.status === TaskStatus.SUCCESS}
+                        disabled={
+                          task.status === TaskStatus.SUCCESS || 
+                          task.status === 'SUCCESS' ||
+                          task.status === TaskStatus.WAITING || 
+                          task.status === 'WAITING' ||
+                          !task.taskId
+                        }
                       >
                         开始轮询
                       </Button>

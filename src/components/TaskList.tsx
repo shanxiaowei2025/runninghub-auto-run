@@ -15,6 +15,8 @@ export default function TaskList({ tasks }: TaskListProps) {
     switch (status) {
       case 'QUEUED':
         return 'warning';
+      case 'WAITING':
+        return 'default';
       case 'RUNNING':
         return 'processing';
       case 'SUCCESS':

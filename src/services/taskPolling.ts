@@ -1,4 +1,5 @@
 import { TaskStatus, TaskStatusResponse, TaskOutputsResponse, PollingTaskResult } from '../types';
+import { notifyTaskCompleted } from './socket'; // 导入通知函数
 
 // API配置
 const API_BASE_URL = 'https://www.runninghub.cn';
@@ -102,6 +103,8 @@ const parseTaskStatus = (statusData: string): TaskStatus => {
         return TaskStatus.RUNNING;
       case 'QUEUED':
         return TaskStatus.QUEUED;
+      case 'WAITING':
+        return TaskStatus.WAITING;
       default:
         return status as TaskStatus;
     }
@@ -122,6 +125,9 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
         status: TaskStatus.FAILED,
         error: statusResponse.msg || '查询任务状态失败',
       });
+      // 任务失败，通知服务器
+      notifyTaskCompleted(taskId);
+      stopPolling(taskId);
       return;
     }
     
@@ -150,16 +156,18 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
         console.error('获取任务输出失败:', outputError);
       }
       
-      // 任务成功完成，停止轮询
+      // 任务成功完成，停止轮询并通知服务器
       stopPolling(taskId);
+      notifyTaskCompleted(taskId);
     } else if (status === TaskStatus.FAILED) {
-      // 任务失败，停止轮询
+      // 任务失败，停止轮询并通知服务器
       triggerEvent(pollingEvents.taskError, {
         taskId,
         status,
         error: '任务执行失败',
       });
       stopPolling(taskId);
+      notifyTaskCompleted(taskId);
     }
   } catch (error) {
     console.error('轮询任务状态失败:', error);
@@ -168,11 +176,20 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
       status: TaskStatus.FAILED,
       error: error instanceof Error ? error.message : '轮询任务状态失败',
     });
+    // 轮询出错，停止轮询并通知服务器
+    stopPolling(taskId);
+    notifyTaskCompleted(taskId);
   }
 };
 
 // 开始轮询任务
 export const startPolling = (apiKey: string, taskId: string): void => {
+  // 检查任务ID是否有效
+  if (!taskId || taskId === 'null' || taskId === 'undefined') {
+    console.warn('无法轮询无效的任务ID');
+    return;
+  }
+  
   // 如果已经在轮询，先停止
   if (pollingTasks.has(taskId)) {
     stopPolling(taskId);

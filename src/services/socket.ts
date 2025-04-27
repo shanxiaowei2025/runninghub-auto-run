@@ -16,6 +16,8 @@ export const socketEvents = {
   disconnect: 'disconnect',
   workflowCreated: 'workflowCreated',
   workflowError: 'workflowError',
+  workflowStatusUpdate: 'workflowStatusUpdate',
+  taskCompleted: 'taskCompleted',
 };
 
 // 创建工作流
@@ -43,10 +45,22 @@ export const onWorkflowError = (callback: (error: { error: string }) => void): v
   socket.on(socketEvents.workflowError, callback);
 };
 
+// 监听工作流状态更新事件
+export const onWorkflowStatusUpdate = (callback: (data: any) => void): void => {
+  socket.on(socketEvents.workflowStatusUpdate, callback);
+};
+
+// 添加任务完成通知函数
+export const notifyTaskCompleted = (taskId: string): void => {
+  socket.emit(socketEvents.taskCompleted, { taskId });
+};
+
 // 清除所有事件监听
 export const clearAllListeners = (): void => {
   socket.off(socketEvents.connect);
   socket.off(socketEvents.disconnect);
   socket.off(socketEvents.workflowCreated);
   socket.off(socketEvents.workflowError);
+  socket.off(socketEvents.workflowStatusUpdate);
+  socket.off(socketEvents.taskCompleted);
 }; 

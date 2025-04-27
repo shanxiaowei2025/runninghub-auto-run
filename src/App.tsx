@@ -6,8 +6,11 @@ import ConnectionStatus from './components/ConnectionStatus'
 import { WorkflowTask, TaskStatus, PollingTaskResult } from './types'
 import { 
   onWorkflowCreated, 
-  onWorkflowError, 
-  clearAllListeners 
+  onWorkflowError,
+  onWorkflowStatusUpdate,
+  clearAllListeners,
+  socket,
+  socketEvents
 } from './services/socket'
 import { 
   pollingEvents, 
@@ -32,13 +35,21 @@ function App() {
     // 当工作流创建成功时
     const handleWorkflowCreated = (task: WorkflowTask) => {
       setTasks(prevTasks => [task, ...prevTasks]);
-      messageApi.success('工作流创建成功！');
       
-      // 如果有API Key，自动开始轮询
-      if (apiKey) {
-        console.log(`自动开始轮询任务 ${task.taskId}`);
-        startPolling(apiKey, task.taskId);
-        setPollingTasks(prev => ({ ...prev, [task.taskId]: true }));
+      // 根据任务状态显示不同的消息
+      if (task.status === 'WAITING' || task.status === TaskStatus.WAITING) {
+        messageApi.info('工作流已加入等待队列！');
+      } else {
+        messageApi.success('工作流创建成功！');
+        
+        // 只有非WAITING状态且有有效taskId的任务才自动开始轮询
+        if (apiKey && task.taskId && 
+            task.status !== 'WAITING' && 
+            task.status !== TaskStatus.WAITING) {
+          console.log(`自动开始轮询任务 ${task.taskId}`);
+          startPolling(apiKey, task.taskId);
+          setPollingTasks(prev => ({ ...prev, [task.taskId]: true }));
+        }
       }
     }
 
@@ -134,6 +145,48 @@ function App() {
       clearAllPollingListeners();
     }
   }, [messageApi, apiKey]);
+
+  // 在App.tsx中修改socket事件监听
+  useEffect(() => {
+    // 当工作流状态更新时（针对WAITING转为其他状态）
+    const handleWorkflowStatusUpdate = (data: any) => {
+      console.log('收到任务状态更新:', data);
+      
+      setTasks(prevTasks => {
+        return prevTasks.map(task => {
+          // 根据原始创建时间匹配任务
+          if (task.createdAt === data.originalCreatedAt) {
+            // 更新任务状态和ID
+            return {
+              ...task,
+              taskId: data.taskId,
+              status: data.status,
+              // 保留原始创建时间
+              createdAt: task.createdAt
+            };
+          }
+          return task;
+        });
+      });
+      
+      // 只有当任务不是WAITING状态且有有效taskId时才开始轮询
+      if (data.taskId && apiKey && 
+          data.status !== 'WAITING' && 
+          data.status !== TaskStatus.WAITING) {
+        startPolling(apiKey, data.taskId);
+        setPollingTasks(prev => ({ ...prev, [data.taskId]: true }));
+        messageApi.success('等待中的任务已开始执行！');
+      }
+    };
+
+    // 添加事件监听
+    onWorkflowStatusUpdate(handleWorkflowStatusUpdate);
+    
+    // 清理函数
+    return () => {
+      socket.off(socketEvents.workflowStatusUpdate, handleWorkflowStatusUpdate);
+    };
+  }, [apiKey]);
 
   // 处理表单提交
   const handleFormSubmit = () => {
