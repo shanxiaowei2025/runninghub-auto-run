@@ -10,11 +10,31 @@ const { Panel } = Collapse;
 interface PollingTaskListProps {
   tasks: WorkflowTask[];
   apiKey: string;
+  loadingTasks?: Record<string, boolean>;
+  onPollingStatusChange?: (taskId: string, isPolling: boolean) => void;
 }
 
-export default function PollingTaskList({ tasks, apiKey }: PollingTaskListProps) {
-  const [loadingTasks, setLoadingTasks] = useState<Record<string, boolean>>({});
+export default function PollingTaskList({ 
+  tasks, 
+  apiKey, 
+  loadingTasks = {}, 
+  onPollingStatusChange 
+}: PollingTaskListProps) {
+  // 组件内部状态，只在未提供外部loadingTasks时使用
+  const [internalLoadingTasks, setInternalLoadingTasks] = useState<Record<string, boolean>>({});
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
+  
+  // 使用外部提供的loadingTasks或内部状态
+  const actualLoadingTasks = onPollingStatusChange ? loadingTasks : internalLoadingTasks;
+  
+  // 更新任务轮询状态
+  const updatePollingStatus = (taskId: string, isPolling: boolean) => {
+    if (onPollingStatusChange) {
+      onPollingStatusChange(taskId, isPolling);
+    } else {
+      setInternalLoadingTasks(prev => ({ ...prev, [taskId]: isPolling }));
+    }
+  };
   
   // 启动轮询
   const handleStartPolling = (taskId: string) => {
@@ -23,14 +43,14 @@ export default function PollingTaskList({ tasks, apiKey }: PollingTaskListProps)
       return;
     }
     
-    setLoadingTasks(prev => ({ ...prev, [taskId]: true }));
+    updatePollingStatus(taskId, true);
     startPolling(apiKey, taskId);
   };
   
   // 停止轮询
   const handleStopPolling = (taskId: string) => {
     stopPolling(taskId);
-    setLoadingTasks(prev => ({ ...prev, [taskId]: false }));
+    updatePollingStatus(taskId, false);
   };
   
   // 切换展开状态
@@ -154,7 +174,7 @@ export default function PollingTaskList({ tasks, apiKey }: PollingTaskListProps)
                 }
                 extra={
                   <div className="flex space-x-2">
-                    {loadingTasks[task.taskId] ? (
+                    {actualLoadingTasks[task.taskId] ? (
                       <Button 
                         icon={<StopOutlined />} 
                         danger 
@@ -189,7 +209,7 @@ export default function PollingTaskList({ tasks, apiKey }: PollingTaskListProps)
                     </div>
                   )}
                   
-                  {loadingTasks[task.taskId] && task.status !== TaskStatus.SUCCESS && (
+                  {actualLoadingTasks[task.taskId] && task.status !== TaskStatus.SUCCESS && (
                     <div className="mt-2">
                       <Spin size="small" /> <Text type="secondary">正在轮询查询任务状态...</Text>
                     </div>

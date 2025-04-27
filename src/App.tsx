@@ -14,7 +14,8 @@ import {
 import { 
   pollingEvents, 
   onPollingEvent, 
-  clearAllPollingListeners 
+  clearAllPollingListeners,
+  startPolling 
 } from './services/taskPolling'
 import { Layout, Typography, Row, Col, Card, message, ConfigProvider, theme, Tabs } from 'antd'
 
@@ -26,12 +27,21 @@ function App() {
   const [tasks, setTasks] = useState<WorkflowTask[]>([])
   const [messageApi, contextHolder] = message.useMessage();
   const [apiKey, setApiKey] = useState<string>('');
+  // 跟踪正在轮询的任务列表
+  const [pollingTasks, setPollingTasks] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     // 当工作流创建成功时
     const handleWorkflowCreated = (task: WorkflowTask) => {
-      setTasks(prevTasks => [task, ...prevTasks])
+      setTasks(prevTasks => [task, ...prevTasks]);
       messageApi.success('工作流创建成功！');
+      
+      // 如果有API Key，自动开始轮询
+      if (apiKey) {
+        console.log(`自动开始轮询任务 ${task.taskId}`);
+        startPolling(apiKey, task.taskId);
+        setPollingTasks(prev => ({ ...prev, [task.taskId]: true }));
+      }
     }
 
     // 当工作流创建失败时
@@ -127,6 +137,8 @@ function App() {
         });
       });
       
+      // 任务完成，更新轮询状态
+      setPollingTasks(prev => ({ ...prev, [taskId]: false }));
       messageApi.success(`轮询到任务 ${taskId} 已完成`);
     };
     
@@ -150,6 +162,8 @@ function App() {
         });
       });
       
+      // 任务失败，更新轮询状态
+      setPollingTasks(prev => ({ ...prev, [taskId]: false }));
       messageApi.error(`轮询任务 ${taskId} 失败: ${error}`);
     };
 
@@ -168,7 +182,7 @@ function App() {
       clearAllListeners();
       clearAllPollingListeners();
     }
-  }, [messageApi]);
+  }, [messageApi, apiKey]);
 
   // 处理表单提交
   const handleFormSubmit = () => {
@@ -178,6 +192,11 @@ function App() {
   // 处理API Key变化
   const handleApiKeyChange = (newApiKey: string) => {
     setApiKey(newApiKey);
+  };
+  
+  // 处理轮询状态变化
+  const handlePollingStatusChange = (taskId: string, isPolling: boolean) => {
+    setPollingTasks(prev => ({ ...prev, [taskId]: isPolling }));
   };
 
   return (
@@ -216,7 +235,12 @@ function App() {
                       <TaskList tasks={tasks} />
                     </TabPane>
                     <TabPane tab="轮询结果" key="polling">
-                      <PollingTaskList tasks={tasks} apiKey={apiKey} />
+                      <PollingTaskList 
+                        tasks={tasks} 
+                        apiKey={apiKey} 
+                        loadingTasks={pollingTasks}
+                        onPollingStatusChange={handlePollingStatusChange}
+                      />
                     </TabPane>
                   </Tabs>
                 </Card>
