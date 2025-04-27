@@ -1,0 +1,27 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# 项目概览
+
+这是一个使用 React + TypeScript + Vite 构建的前端应用程序。项目使用了最新的 React 19 以及 TypeScript 5.7，并采用了 Tailwind CSS 进行样式设计。
+
+## 主要文件
+
+- [vite.config.ts](mdc:vite.config.ts) - Vite 配置文件
+- [package.json](mdc:package.json) - 项目依赖和脚本
+- [tsconfig.json](mdc:tsconfig.json) - TypeScript 配置
+- [eslint.config.js](mdc:eslint.config.js) - ESLint 配置
+
+## 主要目录
+
+- `src/` - 源代码目录
+- `public/` - 静态资源目录
+- `node_modules/` - 依赖包目录
+
+## 开发指南
+
+- 使用 `pnpm dev` 启动开发服务器
+- 使用 `pnpm build` 构建生产版本
+- 使用 `pnpm lint` 运行代码检查

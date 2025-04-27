@@ -1,0 +1,38 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# 技术栈和最佳实践
+
+## 核心技术
+
+- **React 19** - 最新版本的React框架
+- **TypeScript 5.7** - 类型安全的JavaScript超集
+- **Vite 6** - 现代前端构建工具
+- **Tailwind CSS 4** - 实用优先的CSS框架
+
+## 代码风格指南
+
+- 使用TypeScript进行类型检查
+- 遵循ESLint配置进行代码质量控制
+- 组件应该使用函数式组件和React Hooks
+- 使用CSS模块或Tailwind进行样式设计
+
+## TypeScript最佳实践
+
+- 尽可能使用明确的类型，避免使用`any`
+- 利用TypeScript的类型推断减少冗余代码
+- 为组件props和状态定义清晰的接口
+
+## React最佳实践
+
+- 保持组件小而专注
+- 使用React Hooks（useState, useEffect等）管理状态和副作用
+- 使用React.StrictMode发现潜在问题
+- 遵循React性能优化指南
+
+## Vite最佳实践
+
+- 利用Vite的热模块替换(HMR)进行快速开发
+- 使用Vite的构建优化选项提高生产性能

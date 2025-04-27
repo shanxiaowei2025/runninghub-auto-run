@@ -1,0 +1,26 @@
+---
+description: 
+globs: 
+alwaysApply: true
+---
+# 源代码结构
+
+项目的主要源代码位于 `src/` 目录中。
+
+## 入口文件
+
+- [src/main.tsx](mdc:src/main.tsx) - 应用程序的入口点，负责渲染根组件
+- [src/App.tsx](mdc:src/App.tsx) - 主应用组件，包含应用的主要布局和路由
+
+## 样式文件
+
+- [src/index.css](mdc:src/index.css) - 全局样式定义
+- [src/App.css](mdc:src/App.css) - App组件特定样式
+
+## 类型定义
+
+- [src/vite-env.d.ts](mdc:src/vite-env.d.ts) - Vite环境的TypeScript类型声明
+
+## 资源文件
+
+- `src/assets/` - 包含图像、SVG等静态资源
