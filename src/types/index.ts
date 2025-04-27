@@ -9,7 +9,6 @@ export interface CreateWorkflowRequest {
   apiKey: string;
   workflowId: string;
   nodeInfoList: NodeInfo[];
-  webhookUrl?: string;
   addMetadata?: boolean;
 }
 
@@ -37,13 +36,6 @@ export interface WorkflowTask {
   createdAt: string;
   completedAt?: string;
   error?: string;
-}
-
-export interface WebhookCallbackData {
-  taskId: string;
-  event: string;
-  data: string;
-  receivedAt: string;
 }
 
 // 轮询任务相关类型定义

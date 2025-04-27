@@ -1,14 +1,12 @@
 import { useState, useEffect } from 'react'
 import './App.css'
 import WorkflowForm from './components/WorkflowForm'
-import TaskList from './components/TaskList'
 import PollingTaskList from './components/PollingTaskList'
 import ConnectionStatus from './components/ConnectionStatus'
-import { WorkflowTask, TaskStatus, WebhookCallbackData, PollingTaskResult } from './types'
+import { WorkflowTask, TaskStatus, PollingTaskResult } from './types'
 import { 
   onWorkflowCreated, 
   onWorkflowError, 
-  onWebhookCallback, 
   clearAllListeners 
 } from './services/socket'
 import { 
@@ -48,52 +46,6 @@ function App() {
     const handleWorkflowError = (error: { error: string }) => {
       console.error('工作流创建失败:', error)
       messageApi.error(`工作流创建失败: ${error.error}`);
-    }
-
-    // 当收到webhook回调时
-    const handleWebhookCallback = (data: WebhookCallbackData) => {
-      const { taskId, event, data: eventData } = data
-      
-      console.log('收到Webhook回调:', event, taskId);
-      console.log('Webhook事件数据:', eventData);
-      
-      // 支持任何事件类型进行任务状态更新
-      try {
-        // 尝试解析eventData
-        const parsedData = typeof eventData === 'string' 
-          ? JSON.parse(eventData) 
-          : eventData;
-        
-        console.log('解析后的Webhook数据:', parsedData);
-        
-        // 无论事件类型如何，都尝试更新任务状态
-        setTasks(prevTasks => {
-          return prevTasks.map(task => {
-            if (task.taskId === taskId) {
-              // 根据事件类型更新任务状态
-              let newStatus = task.status;
-              if (event === 'TASK_END') {
-                newStatus = TaskStatus.SUCCESS;
-                messageApi.success(`任务 ${taskId} 已完成`);
-              } else if (event.includes('ERROR') || event.includes('FAIL')) {
-                newStatus = TaskStatus.FAILED;
-                messageApi.error(`任务 ${taskId} 失败`);
-              }
-              
-              return {
-                ...task,
-                status: newStatus,
-                result: parsedData,
-                completedAt: new Date().toISOString()
-              }
-            }
-            return task
-          })
-        })
-      } catch (error) {
-        console.error('解析webhook数据失败:', error);
-        messageApi.error('解析webhook数据失败');
-      }
     }
 
     // 处理轮询任务状态更新
@@ -170,7 +122,6 @@ function App() {
     // 注册事件监听
     onWorkflowCreated(handleWorkflowCreated);
     onWorkflowError(handleWorkflowError);
-    onWebhookCallback(handleWebhookCallback);
     
     // 注册轮询事件监听
     onPollingEvent(pollingEvents.taskStatusUpdate, handleTaskStatusUpdate);
@@ -230,11 +181,8 @@ function App() {
               </Col>
               <Col xs={24} lg={12}>
                 <Card bordered={false} style={{ height: '100%', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
-                  <Tabs defaultActiveKey="webhook">
-                    <TabPane tab="Webhook回调" key="webhook">
-                      <TaskList tasks={tasks} />
-                    </TabPane>
-                    <TabPane tab="轮询结果" key="polling">
+                  <Tabs defaultActiveKey="polling">
+                    <TabPane tab="任务结果" key="polling">
                       <PollingTaskList 
                         tasks={tasks} 
                         apiKey={apiKey} 
@@ -249,8 +197,8 @@ function App() {
           </div>
         </Content>
         
-        <Footer style={{ textAlign: 'center', background: '#f7f7f7' }}>
-          RunningHub 工作流自动运行系统 ©{new Date().getFullYear()} 版权所有
+        <Footer style={{ textAlign: 'center', background: '#f0f2f5' }}>
+          RunningHub 工作流自动运行 ©{new Date().getFullYear()} Created by RunningHub Team
         </Footer>
       </Layout>
     </ConfigProvider>

@@ -1,5 +1,5 @@
 import { io, Socket } from 'socket.io-client';
-import { CreateWorkflowRequest, WorkflowTask, WebhookCallbackData } from '../types';
+import { CreateWorkflowRequest, WorkflowTask } from '../types';
 
 // 创建Socket.io客户端实例
 export const socket: Socket = io({
@@ -16,7 +16,6 @@ export const socketEvents = {
   disconnect: 'disconnect',
   workflowCreated: 'workflowCreated',
   workflowError: 'workflowError',
-  webhookCallback: 'webhookCallback',
 };
 
 // 创建工作流
@@ -44,16 +43,10 @@ export const onWorkflowError = (callback: (error: { error: string }) => void): v
   socket.on(socketEvents.workflowError, callback);
 };
 
-// 监听webhook回调事件
-export const onWebhookCallback = (callback: (data: WebhookCallbackData) => void): void => {
-  socket.on(socketEvents.webhookCallback, callback);
-};
-
 // 清除所有事件监听
 export const clearAllListeners = (): void => {
   socket.off(socketEvents.connect);
   socket.off(socketEvents.disconnect);
   socket.off(socketEvents.workflowCreated);
   socket.off(socketEvents.workflowError);
-  socket.off(socketEvents.webhookCallback);
 }; 

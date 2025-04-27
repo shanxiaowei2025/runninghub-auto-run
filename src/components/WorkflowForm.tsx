@@ -1,9 +1,8 @@
 import { useState } from 'react';
 import { NodeInfo } from '../types';
 import { createWorkflow } from '../services/socket';
-import { Form, Input, Button, Card, Typography, Row, Col, Divider, Space, message, Switch } from 'antd';
-import { PlusOutlined, DeleteOutlined, ApiOutlined } from '@ant-design/icons';
-import axios from 'axios';
+import { Form, Input, Button, Card, Typography, Row, Col, Divider, Space, message } from 'antd';
+import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 
 const { Title, Text } = Typography;
 
@@ -23,13 +22,6 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     { nodeId: '', fieldName: '', fieldValue: '' }
   ]);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // 添加自定义webhook开关状态
-  const [useCustomWebhook, setUseCustomWebhook] = useState(false);
-  // 添加自定义webhook URL
-  const [customWebhookUrl, setCustomWebhookUrl] = useState('');
-  // 添加测试webhook功能状态
-  const [testTaskId, setTestTaskId] = useState('test-task-id');
-  const [isTesting, setIsTesting] = useState(false);
 
   // 添加一个新的NodeInfo
   const addNodeInfo = () => {
@@ -75,11 +67,6 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
       nodeInfoList: filteredNodeInfoList
     };
     
-    // 如果使用自定义webhook URL，则添加到请求中
-    if (useCustomWebhook && customWebhookUrl) {
-      Object.assign(requestData, { webhookUrl: customWebhookUrl });
-    }
-    
     // 通知父组件API Key已更改
     if (onApiKeyChange) {
       onApiKeyChange(apiKey);
@@ -95,50 +82,6 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     setTimeout(() => {
       setIsSubmitting(false);
     }, 2000);
-  };
-
-  // 测试webhook回调
-  const testWebhook = async () => {
-    // 确保WebhookURL不为空
-    if (!customWebhookUrl && !useCustomWebhook) {
-      message.warning('请先启用并设置自定义Webhook URL');
-      return;
-    }
-
-    const url = useCustomWebhook && customWebhookUrl 
-      ? customWebhookUrl 
-      : `http://localhost:5173/api/webhook/${Date.now()}`;
-    
-    setIsTesting(true);
-    
-    try {
-      const response = await axios.post(url, {
-        event: 'TASK_END',
-        taskId: testTaskId,
-        eventData: JSON.stringify({
-          code: 0,
-          msg: 'success',
-          data: [{
-            fileUrl: 'https://example.com/test-image.png',
-            fileType: 'png',
-            taskCostTime: 2000,
-            nodeId: '9'
-          }]
-        })
-      }, {
-        headers: {
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      console.log('测试webhook响应:', response.data);
-      message.success('测试webhook回调成功');
-    } catch (error) {
-      console.error('测试webhook回调失败:', error);
-      message.error('测试webhook回调失败，请查看控制台');
-    } finally {
-      setIsTesting(false);
-    }
   };
 
   // 监听API Key变化
@@ -177,54 +120,6 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
           <Input placeholder="输入工作流ID" />
         </Form.Item>
         
-        {/* 添加自定义webhook URL选项 */}
-        <Form.Item label="使用自定义Webhook URL">
-          <div style={{ display: 'flex', alignItems: 'center' }}>
-            <Switch 
-              checked={useCustomWebhook} 
-              onChange={(checked) => setUseCustomWebhook(checked)} 
-            />
-            <span style={{ marginLeft: '8px' }}>
-              {useCustomWebhook ? '开启' : '关闭'}
-            </span>
-            
-            {useCustomWebhook && (
-              <Button 
-                type="link" 
-                icon={<ApiOutlined />}
-                loading={isTesting}
-                onClick={testWebhook}
-                style={{ marginLeft: 'auto' }}
-              >
-                测试Webhook
-              </Button>
-            )}
-          </div>
-        </Form.Item>
-        
-        {useCustomWebhook && (
-          <>
-            <Form.Item
-              label="自定义Webhook URL"
-              rules={[{ required: useCustomWebhook, message: '请输入自定义Webhook URL' }]}
-            >
-              <Input
-                value={customWebhookUrl}
-                onChange={(e) => setCustomWebhookUrl(e.target.value)}
-                placeholder="https://your-webhook-url"
-              />
-            </Form.Item>
-            
-            <Form.Item label="测试任务ID">
-              <Input
-                value={testTaskId}
-                onChange={(e) => setTestTaskId(e.target.value)}
-                placeholder="用于测试Webhook的任务ID"
-              />
-            </Form.Item>
-          </>
-        )}
-        
         <Divider>
           <Space>
             <Text strong>节点信息</Text>
@@ -249,43 +144,49 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
                 <span>节点 #{index + 1}</span>
                 {nodeInfoList.length > 1 && (
                   <Button 
-                    type="text" 
                     danger 
                     icon={<DeleteOutlined />} 
-                    onClick={() => removeNodeInfo(index)} 
                     size="small"
+                    onClick={() => removeNodeInfo(index)}
                   />
                 )}
               </div>
             }
           >
-            <Row gutter={16}>
-              <Col xs={24} md={8}>
-                <Form.Item label="节点ID" required>
+            <Row gutter={[16, 16]}>
+              <Col span={12}>
+                <Form.Item
+                  label="节点ID"
+                  rules={[{ required: true, message: '请输入节点ID' }]}
+                >
                   <Input
+                    placeholder="节点ID"
                     value={nodeInfo.nodeId}
                     onChange={(e) => updateNodeInfo(index, 'nodeId', e.target.value)}
-                    placeholder="如: 6"
                   />
                 </Form.Item>
               </Col>
-              
-              <Col xs={24} md={8}>
-                <Form.Item label="字段名称" required>
+              <Col span={12}>
+                <Form.Item
+                  label="字段名称"
+                  rules={[{ required: true, message: '请输入字段名称' }]}
+                >
                   <Input
+                    placeholder="字段名称"
                     value={nodeInfo.fieldName}
                     onChange={(e) => updateNodeInfo(index, 'fieldName', e.target.value)}
-                    placeholder="如: text"
                   />
                 </Form.Item>
               </Col>
-              
-              <Col xs={24} md={8}>
-                <Form.Item label="字段值" required>
+              <Col span={24}>
+                <Form.Item
+                  label="字段值"
+                  rules={[{ required: true, message: '请输入字段值' }]}
+                >
                   <Input
-                    value={nodeInfo.fieldValue.toString()}
+                    placeholder="字段值"
+                    value={nodeInfo.fieldValue as string}
                     onChange={(e) => updateNodeInfo(index, 'fieldValue', e.target.value)}
-                    placeholder="如: 1 girl in classroom"
                   />
                 </Form.Item>
               </Col>
