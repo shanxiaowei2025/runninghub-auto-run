@@ -2,22 +2,30 @@ import { useState, useEffect } from 'react'
 import './App.css'
 import WorkflowForm from './components/WorkflowForm'
 import TaskList from './components/TaskList'
+import PollingTaskList from './components/PollingTaskList'
 import ConnectionStatus from './components/ConnectionStatus'
-import { WorkflowTask, TaskStatus, WebhookCallbackData } from './types'
+import { WorkflowTask, TaskStatus, WebhookCallbackData, PollingTaskResult } from './types'
 import { 
   onWorkflowCreated, 
   onWorkflowError, 
   onWebhookCallback, 
   clearAllListeners 
 } from './services/socket'
-import { Layout, Typography, Row, Col, Card, message, ConfigProvider, theme } from 'antd'
+import { 
+  pollingEvents, 
+  onPollingEvent, 
+  clearAllPollingListeners 
+} from './services/taskPolling'
+import { Layout, Typography, Row, Col, Card, message, ConfigProvider, theme, Tabs } from 'antd'
 
 const { Header, Content, Footer } = Layout
 const { Title } = Typography
+const { TabPane } = Tabs
 
 function App() {
   const [tasks, setTasks] = useState<WorkflowTask[]>([])
   const [messageApi, contextHolder] = message.useMessage();
+  const [apiKey, setApiKey] = useState<string>('');
 
   useEffect(() => {
     // 当工作流创建成功时
@@ -78,21 +86,99 @@ function App() {
       }
     }
 
+    // 处理轮询任务状态更新
+    const handleTaskStatusUpdate = (data: PollingTaskResult) => {
+      const { taskId, status } = data;
+      
+      console.log('轮询任务状态更新:', taskId, status);
+      
+      setTasks(prevTasks => {
+        return prevTasks.map(task => {
+          if (task.taskId === taskId) {
+            return {
+              ...task,
+              status,
+            };
+          }
+          return task;
+        });
+      });
+    };
+    
+    // 处理轮询任务输出结果更新
+    const handleTaskOutputsUpdate = (data: PollingTaskResult) => {
+      const { taskId, outputs } = data;
+      
+      console.log('轮询任务输出结果:', taskId, outputs);
+      
+      if (!outputs) return;
+      
+      setTasks(prevTasks => {
+        return prevTasks.map(task => {
+          if (task.taskId === taskId) {
+            return {
+              ...task,
+              status: TaskStatus.SUCCESS,
+              result: { data: outputs } as Record<string, unknown>,
+              completedAt: new Date().toISOString()
+            };
+          }
+          return task;
+        });
+      });
+      
+      messageApi.success(`轮询到任务 ${taskId} 已完成`);
+    };
+    
+    // 处理轮询任务错误
+    const handleTaskError = (data: PollingTaskResult) => {
+      const { taskId, error } = data;
+      
+      console.error('轮询任务错误:', taskId, error);
+      
+      setTasks(prevTasks => {
+        return prevTasks.map(task => {
+          if (task.taskId === taskId) {
+            return {
+              ...task,
+              status: TaskStatus.FAILED,
+              error,
+              completedAt: new Date().toISOString()
+            };
+          }
+          return task;
+        });
+      });
+      
+      messageApi.error(`轮询任务 ${taskId} 失败: ${error}`);
+    };
+
     // 注册事件监听
-    onWorkflowCreated(handleWorkflowCreated)
-    onWorkflowError(handleWorkflowError)
-    onWebhookCallback(handleWebhookCallback)
+    onWorkflowCreated(handleWorkflowCreated);
+    onWorkflowError(handleWorkflowError);
+    onWebhookCallback(handleWebhookCallback);
+    
+    // 注册轮询事件监听
+    onPollingEvent(pollingEvents.taskStatusUpdate, handleTaskStatusUpdate);
+    onPollingEvent(pollingEvents.taskOutputsUpdate, handleTaskOutputsUpdate);
+    onPollingEvent(pollingEvents.taskError, handleTaskError);
 
     // 组件卸载时清除所有监听
     return () => {
-      clearAllListeners()
+      clearAllListeners();
+      clearAllPollingListeners();
     }
-  }, [messageApi])
+  }, [messageApi]);
 
   // 处理表单提交
   const handleFormSubmit = () => {
-    console.log('工作流提交成功')
+    console.log('工作流提交成功');
   }
+  
+  // 处理API Key变化
+  const handleApiKeyChange = (newApiKey: string) => {
+    setApiKey(newApiKey);
+  };
 
   return (
     <ConfigProvider
@@ -117,12 +203,22 @@ function App() {
             <Row gutter={[24, 24]}>
               <Col xs={24} lg={12}>
                 <Card bordered={false} style={{ height: '100%', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
-                  <WorkflowForm onSubmit={handleFormSubmit} />
+                  <WorkflowForm 
+                    onSubmit={handleFormSubmit} 
+                    onApiKeyChange={handleApiKeyChange}
+                  />
                 </Card>
               </Col>
               <Col xs={24} lg={12}>
                 <Card bordered={false} style={{ height: '100%', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
-                  <TaskList tasks={tasks} />
+                  <Tabs defaultActiveKey="webhook">
+                    <TabPane tab="Webhook回调" key="webhook">
+                      <TaskList tasks={tasks} />
+                    </TabPane>
+                    <TabPane tab="轮询结果" key="polling">
+                      <PollingTaskList tasks={tasks} apiKey={apiKey} />
+                    </TabPane>
+                  </Tabs>
                 </Card>
               </Col>
             </Row>

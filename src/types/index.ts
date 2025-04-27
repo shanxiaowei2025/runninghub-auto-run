@@ -33,7 +33,7 @@ export interface WorkflowTask {
   taskId: string;
   clientId: string;
   status: TaskStatus | string;
-  result?: any;
+  result?: Record<string, unknown>;
   createdAt: string;
   completedAt?: string;
   error?: string;
@@ -44,4 +44,31 @@ export interface WebhookCallbackData {
   event: string;
   data: string;
   receivedAt: string;
+}
+
+// 轮询任务相关类型定义
+export interface TaskStatusResponse {
+  code: number;
+  msg: string;
+  data: string;
+}
+
+export interface TaskOutputItem {
+  fileUrl: string;
+  fileType: string;
+  taskCostTime: string;
+  nodeId: string;
+}
+
+export interface TaskOutputsResponse {
+  code: number;
+  msg: string;
+  data: TaskOutputItem[];
+}
+
+export interface PollingTaskResult {
+  taskId: string;
+  status: TaskStatus;
+  outputs?: TaskOutputItem[];
+  error?: string;
 } 

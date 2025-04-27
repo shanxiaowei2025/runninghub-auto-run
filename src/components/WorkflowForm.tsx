@@ -9,6 +9,7 @@ const { Title, Text } = Typography;
 
 interface WorkflowFormProps {
   onSubmit: () => void;
+  onApiKeyChange?: (apiKey: string) => void;
 }
 
 interface FormValues {
@@ -16,7 +17,7 @@ interface FormValues {
   workflowId: string;
 }
 
-export default function WorkflowForm({ onSubmit }: WorkflowFormProps) {
+export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormProps) {
   const [form] = Form.useForm();
   const [nodeInfoList, setNodeInfoList] = useState<NodeInfo[]>([
     { nodeId: '', fieldName: '', fieldValue: '' }
@@ -79,6 +80,11 @@ export default function WorkflowForm({ onSubmit }: WorkflowFormProps) {
       Object.assign(requestData, { webhookUrl: customWebhookUrl });
     }
     
+    // 通知父组件API Key已更改
+    if (onApiKeyChange) {
+      onApiKeyChange(apiKey);
+    }
+    
     // 使用Socket.io发送数据
     createWorkflow(requestData);
     
@@ -135,6 +141,13 @@ export default function WorkflowForm({ onSubmit }: WorkflowFormProps) {
     }
   };
 
+  // 监听API Key变化
+  const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (onApiKeyChange) {
+      onApiKeyChange(e.target.value);
+    }
+  };
+
   return (
     <div>
       <Title level={4} className="mb-4">创建工作流</Title>
@@ -150,7 +163,10 @@ export default function WorkflowForm({ onSubmit }: WorkflowFormProps) {
           label="API密钥"
           rules={[{ required: true, message: '请输入API密钥' }]}
         >
-          <Input.Password placeholder="输入API密钥" />
+          <Input.Password 
+            placeholder="输入API密钥" 
+            onChange={handleApiKeyChange}
+          />
         </Form.Item>
         
         <Form.Item
