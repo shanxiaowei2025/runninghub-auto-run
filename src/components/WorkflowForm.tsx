@@ -147,6 +147,22 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     }
   };
 
+  // 任务组卡片标题样式
+  const taskGroupTitleStyle = {
+    backgroundColor: '#e6f7ff', // 浅蓝色背景
+    padding: '8px 12px',
+    borderRadius: '4px 4px 0 0',
+    width: '100%'
+  };
+
+  // 节点卡片标题样式
+  const nodeCardTitleStyle = {
+    backgroundColor: '#f6ffed', // 浅绿色背景
+    padding: '8px 12px',
+    borderRadius: '4px 4px 0 0',
+    width: '100%'
+  };
+
   return (
     <div>
       <Title level={4} className="mb-4">创建工作流</Title>
@@ -177,18 +193,17 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         </Form.Item>
         
         <Divider>
-          <Space>
-            <Text strong>任务组列表</Text>
-          </Space>
+          <Text strong>任务组列表</Text>
         </Divider>
         
         {taskGroups.map((taskGroup, groupIndex) => (
           <Card 
             key={groupIndex} 
             size="small" 
-            className="mb-6"
+            className="mb-4"
+            headStyle={{ padding: 0, margin: 0 }}
             title={
-              <div className="flex justify-between items-center">
+              <div style={taskGroupTitleStyle} className="flex justify-between items-center">
                 <span>任务组 #{groupIndex + 1}</span>
                 {taskGroups.length > 1 && (
                   <Button 
@@ -216,9 +231,7 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
             </Row>
 
             <Divider>
-              <Space>
-                <Text>节点信息</Text>
-              </Space>
+              <Text>节点信息</Text>
             </Divider>
             
             {taskGroup.nodeInfoList.map((nodeInfo, nodeIndex) => (
@@ -226,8 +239,9 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
                 key={nodeIndex} 
                 size="small" 
                 className="mb-4"
+                headStyle={{ padding: 0, margin: 0 }}
                 title={
-                  <div className="flex justify-between items-center">
+                  <div style={nodeCardTitleStyle} className="flex justify-between items-center">
                     <span>节点 #{nodeIndex + 1}</span>
                     {taskGroup.nodeInfoList.length > 1 && (
                       <Button 
@@ -284,14 +298,17 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
             ))}
             
             <Divider dashed={true}>
-                <Button 
-                  type="primary" 
-                  icon={<PlusOutlined />} 
-                  onClick={() => addNodeInfo(groupIndex)} 
-                  size="small"
-                >
-                  添加节点
-                </Button>
+              <Button 
+                type="primary" 
+                color='green'
+                variant='outlined'
+                icon={<PlusOutlined />} 
+                onClick={() => addNodeInfo(groupIndex)} 
+                size="small"
+                className="mb-4"
+              >
+                添加节点
+              </Button>
             </Divider>
           </Card>
         ))}
@@ -299,9 +316,12 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         <Divider dashed={true}>
           <Button 
             type="primary" 
+            color="cyan"
+            variant='outlined'
             icon={<PlusOutlined />} 
             onClick={addTaskGroup} 
             size="small"
+            className="mb-4"
           >
             添加任务组
           </Button>
