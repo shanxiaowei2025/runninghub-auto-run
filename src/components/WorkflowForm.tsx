@@ -183,10 +183,12 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
                   label="字段值"
                   rules={[{ required: true, message: '请输入字段值' }]}
                 >
-                  <Input
+                  <Input.TextArea
                     placeholder="字段值"
                     value={nodeInfo.fieldValue as string}
                     onChange={(e) => updateNodeInfo(index, 'fieldValue', e.target.value)}
+                    autoSize={{ minRows: 1, maxRows: 6 }}
+                    style={{ resize: 'vertical' }}
                   />
                 </Form.Item>
               </Col>
