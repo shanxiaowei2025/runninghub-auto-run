@@ -179,14 +179,6 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         <Divider>
           <Space>
             <Text strong>任务组列表</Text>
-            <Button 
-              type="primary" 
-              icon={<PlusOutlined />} 
-              onClick={addTaskGroup} 
-              size="small"
-            >
-              添加任务组
-            </Button>
           </Space>
         </Divider>
         
@@ -226,14 +218,6 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
             <Divider>
               <Space>
                 <Text>节点信息</Text>
-                <Button 
-                  type="primary" 
-                  icon={<PlusOutlined />} 
-                  onClick={() => addNodeInfo(groupIndex)} 
-                  size="small"
-                >
-                  添加节点
-                </Button>
               </Space>
             </Divider>
             
@@ -298,8 +282,30 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
                 </Row>
               </Card>
             ))}
+            
+            <Divider dashed={true}>
+                <Button 
+                  type="primary" 
+                  icon={<PlusOutlined />} 
+                  onClick={() => addNodeInfo(groupIndex)} 
+                  size="small"
+                >
+                  添加节点
+                </Button>
+            </Divider>
           </Card>
         ))}
+        
+        <Divider dashed={true}>
+          <Button 
+            type="primary" 
+            icon={<PlusOutlined />} 
+            onClick={addTaskGroup} 
+            size="small"
+          >
+            添加任务组
+          </Button>
+        </Divider>
         
         <Form.Item>
           <Button
