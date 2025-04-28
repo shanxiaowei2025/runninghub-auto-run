@@ -1,5 +1,5 @@
 import { TaskStatus, TaskStatusResponse, TaskOutputsResponse, PollingTaskResult } from '../types';
-import { notifyTaskCompleted } from './socket'; // 导入通知函数
+import { notifyTaskCompleted, socket } from './socket'; // 导入通知函数和socket对象
 
 // API配置
 const API_BASE_URL = 'https://www.runninghub.cn';
@@ -158,7 +158,12 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
       
       // 任务成功完成，停止轮询并通知服务器
       stopPolling(taskId);
-      notifyTaskCompleted(taskId);
+      // 添加socket连接状态检查
+      if (socket.connected) {
+        notifyTaskCompleted(taskId);
+      } else {
+        console.warn('Socket断开连接，无法发送任务完成通知');
+      }
     } else if (status === TaskStatus.FAILED) {
       // 任务失败，停止轮询并通知服务器
       triggerEvent(pollingEvents.taskError, {
@@ -167,7 +172,12 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
         error: '任务执行失败',
       });
       stopPolling(taskId);
-      notifyTaskCompleted(taskId);
+      // 添加socket连接状态检查
+      if (socket.connected) {
+        notifyTaskCompleted(taskId);
+      } else {
+        console.warn('Socket断开连接，无法发送任务完成通知');
+      }
     }
   } catch (error) {
     console.error('轮询任务状态失败:', error);
@@ -178,7 +188,12 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
     });
     // 轮询出错，停止轮询并通知服务器
     stopPolling(taskId);
-    notifyTaskCompleted(taskId);
+    // 添加socket连接状态检查
+    if (socket.connected) {
+      notifyTaskCompleted(taskId);
+    } else {
+      console.warn('Socket断开连接，无法发送任务完成通知');
+    }
   }
 };
 

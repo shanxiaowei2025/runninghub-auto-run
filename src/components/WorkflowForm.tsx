@@ -97,12 +97,7 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
           node => node.nodeId && node.fieldName && node.fieldValue !== ''
         )
       };
-    }).filter(group => group.nodeInfoList.length > 0 && group.executionCount > 0);
-    
-    if (validTaskGroups.length === 0) {
-      message.error('请至少添加一个有效的任务组');
-      return;
-    }
+    }).filter(group => group.executionCount > 0);
     
     setIsSubmitting(true);
     
@@ -120,7 +115,8 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         const requestData = {
           apiKey,
           workflowId,
-          nodeInfoList: group.nodeInfoList
+          // 只有当nodeInfoList不为空时才添加到请求中
+          ...(group.nodeInfoList.length > 0 ? { nodeInfoList: group.nodeInfoList } : {})
         };
         
         // 使用Socket.io发送数据

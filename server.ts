@@ -20,42 +20,65 @@ interface WorkflowTask {
   workflowId: string;
   nodeInfoList: Record<string, unknown>[];
   createdAt: string;
+  retryCount?: number; // 添加重试计数器
 }
+
+// 重试配置
+const MAX_RETRY_ATTEMPTS = 5; // 最大重试次数
+const INITIAL_RETRY_DELAY = 1000; // 初始重试延迟（毫秒）
 
 // 队列和重试间隔（毫秒）
 const pendingTasks: WorkflowTask[] = [];
 const waitingTasks: WorkflowTask[] = []; // 新增等待中的任务列表
-let isProcessingPendingTask = false; // 标记是否有正在处理的PENDING任务
+let processingTaskCount = 0; // 替代 isProcessingPendingTask
 
 // 全局SocketIO服务器变量，供其他函数访问
 let ioServer: SocketIOServer;
 
+// 计算指数退避延迟
+function getRetryDelay(retryCount: number): number {
+  return Math.min(INITIAL_RETRY_DELAY * Math.pow(2, retryCount), 30000); // 最大30秒
+}
+
 // 尝试提交等待中的任务
 async function trySubmitWaitingTask() {
-  if (waitingTasks.length === 0 || isProcessingPendingTask) return;
+  if (waitingTasks.length === 0) return;
   
-  isProcessingPendingTask = true;
   const task = waitingTasks[0];
   
+  // 初始化重试计数（如果不存在）
+  if (task.retryCount === undefined) {
+    task.retryCount = 0;
+  }
+  
   try {
-    console.log('尝试创建等待中的任务:', task);
-    const response = await axios.post('https://www.runninghub.cn/task/openapi/create', {
+    console.log(`尝试创建等待中的任务 (重试次数: ${task.retryCount}):`, task.createdAt);
+    
+    // 构建请求参数对象，仅当 nodeInfoList 存在且不为空时才包含
+    const requestParams = {
       apiKey: task.apiKey,
       workflowId: task.workflowId,
-      nodeInfoList: task.nodeInfoList
-    }, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Host': 'www.runninghub.cn'
+      ...(task.nodeInfoList && task.nodeInfoList.length > 0 ? { nodeInfoList: task.nodeInfoList } : {})
+    };
+    
+    const response = await axios.post('https://www.runninghub.cn/task/openapi/create', 
+      requestParams, 
+      {
+        headers: {
+          'Content-Type': 'application/json',
+          'Host': 'www.runninghub.cn'
+        },
+        timeout: 10000
       }
-    });
+    );
     
     console.log('等待队列中的工作流创建响应:', response.data);
     
     // 检查API返回的业务错误码
     if (response.data.code === 421 && response.data.msg === 'TASK_QUEUE_MAXED') {
       console.log('任务队列已满，任务继续等待');
-      isProcessingPendingTask = false;
+      // 保持任务在队列中的位置不变
+      // 但不增加processingTaskCount
       return;
     }
     
@@ -67,43 +90,89 @@ async function trySubmitWaitingTask() {
       // 通知客户端任务已成功创建，更新现有任务而不是创建新任务
       const socket = ioServer.sockets.sockets.get(task.socketId);
       if (socket) {
+        // 添加 taskCompleted 事件发送
         if (response.data.data) {
           console.log('发送任务状态更新:', task.createdAt, response.data.data.taskId);
           socket.emit('workflowStatusUpdate', {
-            originalCreatedAt: task.createdAt, // 添加原始创建时间以便客户端可以找到对应任务
+            originalCreatedAt: task.createdAt,
             taskId: response.data.data.taskId,
             status: response.data.data.taskStatus,
-            createdAt: task.createdAt // 保持原有创建时间
+            createdAt: task.createdAt
           });
+          
+          // 关键：增加计数器，因为任务成功创建
+          processingTaskCount++;
+          console.log(`增加处理中任务计数: ${processingTaskCount}`);
         } else {
           socket.emit('workflowStatusUpdate', {
             originalCreatedAt: task.createdAt,
             taskId: null,
             status: 'SUCCESS',
-            createdAt: task.createdAt // 保持原有创建时间
+            createdAt: task.createdAt
           });
         }
       }
-      
-      // 此任务成功创建后，isProcessingPendingTask保持为true
-      // 等待这个新创建的任务也完成后，客户端会通知服务器
     } else {
       console.log(`API返回错误码: ${response.data.code}, 消息: ${response.data.msg}`);
-      // 任务创建失败，重置处理状态，继续等待
-      isProcessingPendingTask = false;
+      
+      // 任务创建失败，增加重试计数
+      task.retryCount++;
+      
+      if (task.retryCount <= MAX_RETRY_ATTEMPTS) {
+        const retryDelay = getRetryDelay(task.retryCount);
+        console.error(`创建任务失败，将在${retryDelay}ms后重试, 第${task.retryCount}次重试`);
+        
+        // 延迟重试
+        setTimeout(trySubmitWaitingTask, retryDelay);
+      } else {
+        console.error(`创建任务失败，已达到最大重试次数(${MAX_RETRY_ATTEMPTS})，放弃任务`);
+        
+        // 通知客户端任务失败
+        const socket = ioServer.sockets.sockets.get(task.socketId);
+        if (socket) {
+          socket.emit('workflowStatusUpdate', {
+            originalCreatedAt: task.createdAt,
+            taskId: null,
+            status: 'FAILED',
+            createdAt: task.createdAt,
+            error: '任务创建失败，请稍后重试'
+          });
+        }
+        
+        // 从等待队列中移除失败的任务
+        waitingTasks.shift();
+      }
     }
   } catch (error) {
-    console.error('创建等待中的工作流时出错:', error);
-    // 出错时也重置处理状态
-    isProcessingPendingTask = false;
+    // 网络或其他错误，增加重试计数
+    task.retryCount++;
+    
+    // 判断是否继续重试
+    if (task.retryCount <= MAX_RETRY_ATTEMPTS) {
+      const retryDelay = getRetryDelay(task.retryCount);
+      console.error(`创建等待中的工作流时出错 (将在${retryDelay}ms后重试, 第${task.retryCount}次重试):`, error);
+      
+      // 延迟重试
+      setTimeout(trySubmitWaitingTask, retryDelay);
+    } else {
+      console.error(`创建等待中的工作流失败，已达到最大重试次数(${MAX_RETRY_ATTEMPTS})，放弃任务:`, error);
+      
+      // 通知客户端任务失败
+      const socket = ioServer.sockets.sockets.get(task.socketId);
+      if (socket) {
+        socket.emit('workflowStatusUpdate', {
+          originalCreatedAt: task.createdAt,
+          taskId: null,
+          status: 'FAILED',
+          createdAt: task.createdAt,
+          error: '任务创建失败，请稍后重试'
+        });
+      }
+      
+      // 从等待队列中移除失败的任务
+      waitingTasks.shift();
+    }
   }
-}
-
-// 任务完成（成功或失败）后的处理函数
-function onTaskCompleted() {
-  isProcessingPendingTask = false;
-  // 尝试处理等待队列中的下一个任务
-  setTimeout(trySubmitWaitingTask, 1000);
 }
 
 // 创建服务器
@@ -184,17 +253,23 @@ async function createServer() {
       try {
         const { apiKey, workflowId, nodeInfoList } = data;
         
-        // 调用RunningHub API创建工作流
-        const response = await axios.post('https://www.runninghub.cn/task/openapi/create', {
+        // 构建请求参数对象，仅当 nodeInfoList 存在且不为空时才包含
+        const requestParams = {
           apiKey,
           workflowId,
-          nodeInfoList
-        }, {
-          headers: {
-            'Content-Type': 'application/json',
-            'Host': 'www.runninghub.cn'
+          ...(nodeInfoList && nodeInfoList.length > 0 ? { nodeInfoList } : {})
+        };
+        
+        // 调用RunningHub API创建工作流
+        const response = await axios.post('https://www.runninghub.cn/task/openapi/create', 
+          requestParams, 
+          {
+            headers: {
+              'Content-Type': 'application/json',
+              'Host': 'www.runninghub.cn'
+            }
           }
-        });
+        );
         
         console.log('工作流创建响应:', response.data);
         
@@ -221,7 +296,7 @@ async function createServer() {
           });
           
           // 如果当前没有正在处理的任务，尝试处理这个新的等待任务
-          if (!isProcessingPendingTask) {
+          if (processingTaskCount === 0) {
             setTimeout(trySubmitWaitingTask, 1000);
           }
           
@@ -282,17 +357,19 @@ async function createServer() {
       }
     });
 
-    // 添加任务完成事件监听
+    // 修改 taskCompleted 事件处理
     socket.on('taskCompleted', (data) => {
       console.log('收到任务完成通知:', data);
       
-      // 标记没有正在处理的任务
-      isProcessingPendingTask = false;
+      // 减少正在处理的任务计数
+      processingTaskCount--;
+      if (processingTaskCount < 0) processingTaskCount = 0;
       
-      // 尝试处理等待队列中的任务
+      // 重要：立即尝试处理等待队列中的任务
       if (waitingTasks.length > 0) {
-        console.log('有等待中的任务，尝试处理');
-        setTimeout(trySubmitWaitingTask, 1000);
+        console.log('收到任务完成通知，立即尝试处理等待任务');
+        // 直接调用，不使用 setTimeout
+        trySubmitWaitingTask();
       }
     });
   });

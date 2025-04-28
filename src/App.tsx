@@ -234,16 +234,12 @@ function App() {
               </Col>
               <Col xs={24} lg={12}>
                 <Card bordered={false} style={{ height: '100%', boxShadow: '0 1px 4px rgba(0,0,0,0.1)' }}>
-                  <Tabs defaultActiveKey="polling">
-                    <TabPane tab="任务结果" key="polling">
-                      <PollingTaskList 
-                        tasks={tasks} 
-                        apiKey={apiKey} 
-                        loadingTasks={pollingTasks}
-                        onPollingStatusChange={handlePollingStatusChange}
-                      />
-                    </TabPane>
-                  </Tabs>
+                  <PollingTaskList 
+                    tasks={tasks} 
+                    apiKey={apiKey} 
+                    loadingTasks={pollingTasks}
+                    onPollingStatusChange={handlePollingStatusChange}
+                  />
                 </Card>
               </Col>
             </Row>
