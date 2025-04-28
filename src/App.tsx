@@ -324,7 +324,7 @@ function App() {
         </Content>
         
         <Footer style={{ textAlign: 'center', background: '#f0f2f5' }}>
-          RunningHub 工作流自动运行 ©{new Date().getFullYear()} Created by RunningHub Team
+          RunningHub 工作流自动运行 ©{new Date().getFullYear()} Created by 北京善小为科技有限公司
         </Footer>
       </Layout>
     </ConfigProvider>

@@ -85,6 +85,61 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     setTaskGroups(newGroups);
   };
 
+  // 处理单个任务组提交
+  const handleSubmitSingleGroup = (groupIndex: number) => {
+    // 获取表单当前值
+    const formValues = form.getFieldsValue();
+    const { apiKey, workflowId } = formValues;
+    
+    if (!apiKey || !workflowId) {
+      message.error('请先填写API密钥和工作流ID');
+      return;
+    }
+    
+    // 验证当前任务组，过滤掉不完整的nodeInfo
+    const group = taskGroups[groupIndex];
+    const validNodeInfoList = group.nodeInfoList.filter(
+      node => node.nodeId && node.fieldName && node.fieldValue !== ''
+    );
+    
+    if (validNodeInfoList.length === 0) {
+      message.error('请至少添加一个有效的节点信息');
+      return;
+    }
+    
+    setIsSubmitting(true);
+    
+    // 通知父组件API Key已更改
+    if (onApiKeyChange) {
+      onApiKeyChange(apiKey);
+    }
+    
+    // 创建工作流任务
+    let tasksCount = 0;
+    for (let i = 0; i < group.executionCount; i++) {
+      // 构建请求对象
+      const requestData = {
+        apiKey,
+        workflowId,
+        nodeInfoList: validNodeInfoList
+      };
+      
+      // 使用Socket.io发送数据
+      createWorkflow(requestData);
+      tasksCount++;
+    }
+    
+    message.success(`已创建 ${tasksCount} 个工作流任务`);
+    
+    // 调用回调函数
+    onSubmit();
+    
+    // 重置表单状态
+    setTimeout(() => {
+      setIsSubmitting(false);
+    }, 2000);
+  };
+
   // 提交表单
   const handleSubmit = (values: FormValues) => {
     const { apiKey, workflowId } = values;
@@ -97,7 +152,12 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
           node => node.nodeId && node.fieldName && node.fieldValue !== ''
         )
       };
-    }).filter(group => group.executionCount > 0);
+    }).filter(group => group.executionCount > 0 && group.nodeInfoList.length > 0);
+    
+    if (validTaskGroups.length === 0) {
+      message.error('请至少添加一个有效的任务组');
+      return;
+    }
     
     setIsSubmitting(true);
     
@@ -306,6 +366,18 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
                 添加节点
               </Button>
             </Divider>
+            
+            {/* 添加单个任务组的创建工作流按钮 */}
+            <div className="text-center mt-4">
+              <Button
+                type="primary"
+                onClick={() => handleSubmitSingleGroup(groupIndex)}
+                loading={isSubmitting}
+                style={{ backgroundColor: '#1890ff' }}
+              >
+                创建此任务组工作流
+              </Button>
+            </div>
           </Card>
         ))}
         
@@ -330,7 +402,7 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
             loading={isSubmitting}
             className="w-full"
           >
-            {isSubmitting ? '提交中...' : '创建工作流'}
+            {isSubmitting ? '提交中...' : '创建所有任务组工作流'}
           </Button>
         </Form.Item>
       </Form>
