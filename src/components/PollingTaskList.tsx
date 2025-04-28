@@ -12,7 +12,9 @@ import {
   AppstoreOutlined,
   CloseCircleOutlined,
   SyncOutlined,
-  DeleteOutlined
+  DeleteOutlined,
+  EyeOutlined,
+  EyeInvisibleOutlined
 } from '@ant-design/icons';
 import { WorkflowTask, TaskStatus, TaskOutputItem, NodeInfo } from '../types';
 import { startPolling, stopPolling } from '../services/taskPolling';
@@ -60,6 +62,72 @@ const NoWrapStatistic = ({ title, value, prefix, valueStyle }: {
     </div>
   </Tooltip>
 );
+
+// 渲染按钮操作区域
+const renderTaskActions = (task: EnhancedWorkflowTask, 
+                          isPolling: boolean, 
+                          isExpanded: boolean,
+                          onStartPolling: () => void, 
+                          onStopPolling: () => void, 
+                          onExpand: () => void, 
+                          onDelete: () => void) => {
+  return (
+    <div style={{ display: 'flex', gap: '8px' }}>
+      {/* 轮询按钮 */}
+      {isPolling ? (
+        <Tooltip title="停止轮询查询任务状态">
+          <Button 
+            icon={<StopOutlined />} 
+            danger
+            type="text"
+            onClick={onStopPolling}
+          />
+        </Tooltip>
+      ) : (
+        <Tooltip title="开始轮询查询任务状态">
+          <Button 
+            icon={<ReloadOutlined />} 
+            type="text"
+            onClick={onStartPolling}
+            disabled={
+              task.status === TaskStatus.SUCCESS || 
+              task.status === 'SUCCESS' ||
+              task.status === TaskStatus.WAITING || 
+              task.status === 'WAITING' ||
+              !task.taskId
+            }
+            style={{ 
+              color: (task.status === TaskStatus.SUCCESS || 
+                    task.status === 'SUCCESS' ||
+                    task.status === TaskStatus.WAITING || 
+                    task.status === 'WAITING' ||
+                    !task.taskId) ? undefined : '#1677ff'
+            }}
+          />
+        </Tooltip>
+      )}
+      
+      {/* 展开/收起按钮 */}
+      <Tooltip title={isExpanded ? "收起详情" : "展开详情"}>
+        <Button 
+          icon={isExpanded ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          type="text"
+          onClick={onExpand}
+        />
+      </Tooltip>
+      
+      {/* 删除按钮 */}
+      <Tooltip title="从任务列表中删除">
+        <Button
+          icon={<DeleteOutlined />}
+          danger
+          type="text"
+          onClick={onDelete}
+        />
+      </Tooltip>
+    </div>
+  );
+};
 
 export default function PollingTaskList({ 
   tasks, 
@@ -420,46 +488,15 @@ export default function PollingTaskList({
                     <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
                   </div>
                 }
-                extra={
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {actualLoadingTasks[task.taskId] ? (
-                      <Button 
-                        icon={<StopOutlined />} 
-                        danger 
-                        onClick={() => handleStopPolling(task.taskId)}
-                      >
-                        停止轮询
-                      </Button>
-                    ) : (
-                      <Button 
-                        icon={<ReloadOutlined />} 
-                        type="primary" 
-                        onClick={() => handleStartPolling(task.taskId)}
-                        disabled={
-                          task.status === TaskStatus.SUCCESS || 
-                          task.status === 'SUCCESS' ||
-                          task.status === TaskStatus.WAITING || 
-                          task.status === 'WAITING' ||
-                          !task.taskId
-                        }
-                      >
-                        开始轮询
-                      </Button>
-                    )}
-                    <Button 
-                      type="text" 
-                      onClick={() => handleExpand(task.uniqueId)}
-                    >
-                      {expandedTasks.includes(task.uniqueId) ? '收起' : '展开'}
-                    </Button>
-                    <Button
-                      icon={<DeleteOutlined />}
-                      danger
-                      type="text"
-                      onClick={() => handleDeleteTask(task)}
-                    />
-                  </div>
-                }
+                extra={renderTaskActions(
+                  task,
+                  !!actualLoadingTasks[task.taskId],
+                  expandedTasks.includes(task.uniqueId),
+                  () => handleStartPolling(task.taskId),
+                  () => handleStopPolling(task.taskId),
+                  () => handleExpand(task.uniqueId),
+                  () => handleDeleteTask(task)
+                )}
                 style={{ width: '100%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}
               >
                 <div style={{ marginTop: '8px' }}>
