@@ -18,6 +18,7 @@ export const socketEvents = {
   workflowError: 'workflowError',
   workflowStatusUpdate: 'workflowStatusUpdate',
   taskCompleted: 'taskCompleted',
+  taskDeleted: 'taskDeleted',
 };
 
 // 创建工作流
@@ -55,6 +56,16 @@ export const notifyTaskCompleted = (taskId: string): void => {
   socket.emit(socketEvents.taskCompleted, { taskId });
 };
 
+// 通知服务器删除任务
+export const notifyDeleteTask = (uniqueId: string, taskId: string | null, createdAt: string, isWaiting: boolean): void => {
+  socket.emit('deleteTask', { uniqueId, taskId, createdAt, isWaiting });
+};
+
+// 添加删除任务成功事件监听
+export const onTaskDeleted = (callback: (data: any) => void): void => {
+  socket.on(socketEvents.taskDeleted, callback);
+};
+
 // 清除所有事件监听
 export const clearAllListeners = (): void => {
   socket.off(socketEvents.connect);
@@ -63,4 +74,5 @@ export const clearAllListeners = (): void => {
   socket.off(socketEvents.workflowError);
   socket.off(socketEvents.workflowStatusUpdate);
   socket.off(socketEvents.taskCompleted);
+  socket.off(socketEvents.taskDeleted);
 }; 

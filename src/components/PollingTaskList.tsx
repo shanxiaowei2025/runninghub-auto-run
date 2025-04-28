@@ -11,7 +11,8 @@ import {
   ClockCircleOutlined, 
   AppstoreOutlined,
   CloseCircleOutlined,
-  SyncOutlined
+  SyncOutlined,
+  DeleteOutlined
 } from '@ant-design/icons';
 import { WorkflowTask, TaskStatus, TaskOutputItem, NodeInfo } from '../types';
 import { startPolling, stopPolling } from '../services/taskPolling';
@@ -24,6 +25,7 @@ interface PollingTaskListProps {
   apiKey: string;
   loadingTasks?: Record<string, boolean>;
   onPollingStatusChange?: (taskId: string, isPolling: boolean) => void;
+  onDeleteTask?: (taskIdOrUniqueId: string, isUniqueId: boolean, task?: WorkflowTask) => void;
 }
 
 // 为任务增加唯一标识符
@@ -63,7 +65,8 @@ export default function PollingTaskList({
   tasks, 
   apiKey, 
   loadingTasks = {}, 
-  onPollingStatusChange 
+  onPollingStatusChange,
+  onDeleteTask
 }: PollingTaskListProps) {
   // 组件内部状态，只在未提供外部loadingTasks时使用
   const [internalLoadingTasks, setInternalLoadingTasks] = useState<Record<string, boolean>>({});
@@ -319,6 +322,26 @@ export default function PollingTaskList({
     );
   };
   
+  // 删除任务
+  const handleDeleteTask = (task: EnhancedWorkflowTask) => {
+    // 如果任务正在轮询，先停止轮询
+    if (task.taskId && actualLoadingTasks[task.taskId]) {
+      handleStopPolling(task.taskId);
+    }
+    
+    // 调用外部删除函数
+    if (onDeleteTask) {
+      // 对于有taskId的普通任务，传递taskId
+      if (task.taskId) {
+        onDeleteTask(task.taskId, false);
+      } 
+      // 对于没有taskId的WAITING状态任务，传递uniqueId作为识别标识，并标记为uniqueId
+      else {
+        onDeleteTask(task.uniqueId, true);
+      }
+    }
+  };
+  
   return (
     <div className="polling-task-list">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
@@ -429,6 +452,12 @@ export default function PollingTaskList({
                     >
                       {expandedTasks.includes(task.uniqueId) ? '收起' : '展开'}
                     </Button>
+                    <Button
+                      icon={<DeleteOutlined />}
+                      danger
+                      type="text"
+                      onClick={() => handleDeleteTask(task)}
+                    />
                   </div>
                 }
                 style={{ width: '100%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}

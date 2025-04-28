@@ -376,6 +376,34 @@ async function createServer() {
         trySubmitWaitingTask();
       }
     });
+
+    // 处理删除任务请求
+    socket.on('deleteTask', (data) => {
+      const { uniqueId, taskId, createdAt, isWaiting } = data;
+      console.log('收到删除任务请求:', data);
+      
+      // 如果是等待中的任务，根据createdAt从等待队列中删除
+      if (isWaiting) {
+        // 查找任务在等待队列中的索引
+        const taskIndex = waitingTasks.findIndex(task => task.createdAt === createdAt);
+        
+        if (taskIndex !== -1) {
+          // 从等待队列中移除任务
+          waitingTasks.splice(taskIndex, 1);
+          console.log(`已从等待队列中移除任务，队列剩余${waitingTasks.length}个任务`);
+          
+          // 通知客户端任务已被成功删除
+          socket.emit('taskDeleted', { uniqueId, success: true });
+        } else {
+          console.log('未在等待队列中找到要删除的任务');
+          socket.emit('taskDeleted', { uniqueId, success: false, error: '未找到任务' });
+        }
+      }
+      // 非等待中的任务（有taskId）不需要特别处理，因为它们已经通过API取消
+      else if (taskId) {
+        socket.emit('taskDeleted', { taskId, success: true });
+      }
+    });
   });
 
   // 启动服务器

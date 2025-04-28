@@ -10,7 +10,8 @@ import {
   onWorkflowStatusUpdate,
   clearAllListeners,
   socket,
-  socketEvents
+  socketEvents,
+  notifyDeleteTask
 } from './services/socket'
 import { 
   pollingEvents, 
@@ -19,6 +20,7 @@ import {
   startPolling 
 } from './services/taskPolling'
 import { Layout, Typography, Row, Col, Card, message, ConfigProvider, theme, Tabs } from 'antd'
+import { cancelTask } from './services/taskService'
 
 const { Header, Content, Footer } = Layout
 const { Title } = Typography
@@ -203,6 +205,80 @@ function App() {
     setPollingTasks(prev => ({ ...prev, [taskId]: isPolling }));
   };
 
+  // 修改删除任务的处理函数
+  const handleDeleteTask = async (taskIdOrUniqueId: string, isUniqueId: boolean = false) => {
+    // 对于有taskId的任务，停止轮询
+    if (!isUniqueId && taskIdOrUniqueId) {
+      setPollingTasks(prev => {
+        const newPollingTasks = { ...prev };
+        delete newPollingTasks[taskIdOrUniqueId];
+        return newPollingTasks;
+      });
+    }
+    
+    // 从任务列表中移除任务
+    setTasks(prevTasks => {
+      // 查找要删除的任务，以获取完整信息
+      const taskToDelete = prevTasks.find(task => {
+        if (isUniqueId) {
+          // 使用组件生成的uniqueId删除任务（主要用于WAITING状态的任务）
+          const taskUniqueId = task.taskId || `waiting-task-${prevTasks.indexOf(task)}`;
+          return taskUniqueId === taskIdOrUniqueId;
+        } else {
+          // 使用taskId删除任务（适用于非WAITING状态的任务）
+          return task.taskId === taskIdOrUniqueId;
+        }
+      });
+      
+      // 如果找到任务，根据状态执行不同的操作
+      if (taskToDelete) {
+        // 检查任务状态
+        const status = taskToDelete.status;
+        const taskId = taskToDelete.taskId;
+        
+        // WAITING状态的任务需要通知服务器从等待队列中删除
+        if (status === 'WAITING' || status === TaskStatus.WAITING) {
+          // 通知服务器从等待队列中删除任务
+          notifyDeleteTask(
+            taskIdOrUniqueId,  // uniqueId
+            taskToDelete.taskId || null, // taskId
+            taskToDelete.createdAt, // createdAt
+            true // isWaiting
+          );
+        } 
+        // QUEUED或PENDING状态的任务需要调用API取消任务执行
+        else if ((status === 'QUEUED' || status === TaskStatus.QUEUED || 
+                 status === 'RUNNING' || status === TaskStatus.RUNNING) && 
+                 taskId) {
+          // 调用取消任务API
+          cancelTask(apiKey, taskId)
+            .then(success => {
+              if (success) {
+                messageApi.success(`已成功取消任务 ${taskId}`);
+              } else {
+                messageApi.error(`取消任务 ${taskId} 失败`);
+              }
+            })
+            .catch(error => {
+              messageApi.error(`取消任务出错: ${error.message}`);
+            });
+        }
+      }
+      
+      // 过滤掉要删除的任务
+      return prevTasks.filter(task => {
+        if (isUniqueId) {
+          const taskUniqueId = task.taskId || `waiting-task-${prevTasks.indexOf(task)}`;
+          return taskUniqueId !== taskIdOrUniqueId;
+        } else {
+          return task.taskId !== taskIdOrUniqueId;
+        }
+      });
+    });
+    
+    messageApi.success('任务已从列表中删除');
+  };
+
   return (
     <ConfigProvider
       theme={{
@@ -239,6 +315,7 @@ function App() {
                     apiKey={apiKey} 
                     loadingTasks={pollingTasks}
                     onPollingStatusChange={handlePollingStatusChange}
+                    onDeleteTask={(taskIdOrUniqueId, isUniqueId, task) => handleDeleteTask(taskIdOrUniqueId, isUniqueId)}
                   />
                 </Card>
               </Col>
