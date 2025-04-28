@@ -1,8 +1,8 @@
-import { useState } from 'react';
-import { NodeInfo } from '../types';
+import { useEffect, useState } from 'react';
 import { createWorkflow } from '../services/socket';
-import { Form, Input, Button, Card, Typography, Row, Col, Divider, Space, message, InputNumber } from 'antd';
+import { Form, Input, Button, Card, Typography, Row, Col, Divider, message, InputNumber } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
+import { useWorkflowFormStore } from '../stores/workflowFormStore';
 
 const { Title, Text } = Typography;
 
@@ -16,74 +16,36 @@ interface FormValues {
   workflowId: string;
 }
 
-// 任务分组接口
-interface TaskGroup {
-  nodeInfoList: NodeInfo[];
-  executionCount: number;
-}
-
 export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormProps) {
   const [form] = Form.useForm();
-  const [taskGroups, setTaskGroups] = useState<TaskGroup[]>([
-    { 
-      nodeInfoList: [{ nodeId: '', fieldName: '', fieldValue: '' }],
-      executionCount: 1
-    }
-  ]);
+  // 使用 Zustand store 中的状态和方法
+  const { 
+    formData,
+    setApiKey,
+    setWorkflowId,
+    addTaskGroup, 
+    removeTaskGroup,
+    updateExecutionCount,
+    addNodeInfo,
+    removeNodeInfo,
+    updateNodeInfo
+  } = useWorkflowFormStore();
+  
+  const taskGroups = formData.taskGroups;
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // 添加一个新的任务组
-  const addTaskGroup = () => {
-    setTaskGroups([
-      ...taskGroups, 
-      { 
-        nodeInfoList: [{ nodeId: '', fieldName: '', fieldValue: '' }],
-        executionCount: 1
-      }
-    ]);
-  };
-
-  // 删除任务组
-  const removeTaskGroup = (groupIndex: number) => {
-    if (taskGroups.length > 1) {
-      const newGroups = [...taskGroups];
-      newGroups.splice(groupIndex, 1);
-      setTaskGroups(newGroups);
+  // 初始化表单数据
+  useEffect(() => {
+    form.setFieldsValue({
+      apiKey: formData.apiKey,
+      workflowId: formData.workflowId
+    });
+    
+    // 如果已有API Key，通知父组件
+    if (formData.apiKey && onApiKeyChange) {
+      onApiKeyChange(formData.apiKey);
     }
-  };
-
-  // 更新任务组的执行次数
-  const updateExecutionCount = (groupIndex: number, count: number) => {
-    const newGroups = [...taskGroups];
-    newGroups[groupIndex] = { ...newGroups[groupIndex], executionCount: count };
-    setTaskGroups(newGroups);
-  };
-
-  // 添加一个新的NodeInfo到指定任务组
-  const addNodeInfo = (groupIndex: number) => {
-    const newGroups = [...taskGroups];
-    newGroups[groupIndex].nodeInfoList.push({ nodeId: '', fieldName: '', fieldValue: '' });
-    setTaskGroups(newGroups);
-  };
-
-  // 从指定任务组中移除一个NodeInfo
-  const removeNodeInfo = (groupIndex: number, nodeIndex: number) => {
-    const newGroups = [...taskGroups];
-    if (newGroups[groupIndex].nodeInfoList.length > 1) {
-      newGroups[groupIndex].nodeInfoList.splice(nodeIndex, 1);
-      setTaskGroups(newGroups);
-    }
-  };
-
-  // 更新指定任务组中的NodeInfo属性
-  const updateNodeInfo = (groupIndex: number, nodeIndex: number, field: keyof NodeInfo, value: string) => {
-    const newGroups = [...taskGroups];
-    newGroups[groupIndex].nodeInfoList[nodeIndex] = { 
-      ...newGroups[groupIndex].nodeInfoList[nodeIndex], 
-      [field]: value 
-    };
-    setTaskGroups(newGroups);
-  };
+  }, [form, formData.apiKey, formData.workflowId, onApiKeyChange]);
 
   // 处理单个任务组提交
   const handleSubmitSingleGroup = (groupIndex: number) => {
@@ -108,6 +70,10 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     }
     
     setIsSubmitting(true);
+    
+    // 保存API Key和workflowId到store
+    setApiKey(apiKey);
+    setWorkflowId(workflowId);
     
     // 通知父组件API Key已更改
     if (onApiKeyChange) {
@@ -161,6 +127,10 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     
     setIsSubmitting(true);
     
+    // 保存API Key和workflowId到store
+    setApiKey(apiKey);
+    setWorkflowId(workflowId);
+    
     // 通知父组件API Key已更改
     if (onApiKeyChange) {
       onApiKeyChange(apiKey);
@@ -175,8 +145,7 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         const requestData = {
           apiKey,
           workflowId,
-          // 只有当nodeInfoList不为空时才添加到请求中
-          ...(group.nodeInfoList.length > 0 ? { nodeInfoList: group.nodeInfoList } : {})
+          nodeInfoList: group.nodeInfoList.length > 0 ? group.nodeInfoList : []
         };
         
         // 使用Socket.io发送数据
@@ -198,6 +167,8 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
 
   // 监听API Key变化
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setApiKey(e.target.value);
+    
     if (onApiKeyChange) {
       onApiKeyChange(e.target.value);
     }
@@ -227,7 +198,10 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         form={form}
         layout="vertical"
         onFinish={handleSubmit}
-        initialValues={{ apiKey: '', workflowId: '' }}
+        initialValues={{ 
+          apiKey: formData.apiKey, 
+          workflowId: formData.workflowId 
+        }}
       >
         <Form.Item
           name="apiKey"
@@ -245,7 +219,10 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
           label="工作流ID"
           rules={[{ required: true, message: '请输入工作流ID' }]}
         >
-          <Input placeholder="输入工作流ID" />
+          <Input 
+            placeholder="输入工作流ID" 
+            onChange={(e) => setWorkflowId(e.target.value)}
+          />
         </Form.Item>
         
         <Divider>
