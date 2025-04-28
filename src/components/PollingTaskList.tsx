@@ -284,23 +284,26 @@ export default function PollingTaskList({
                 size="small" 
                 cover={
                   output.fileType.toLowerCase().match(/png|jpg|jpeg|gif|webp/) ? (
-                    <div style={{ maxHeight: 200, overflow: 'hidden' }}>
-                      <Image
-                        src={output.fileUrl}
-                        alt={`Node ${output.nodeId} output`}
-                        style={{ objectFit: 'cover', width: '100%' }}
-                      />
-                    </div>
+                    <Image
+                      src={output.fileUrl}
+                      alt={`输出图片`}
+                      style={{ width: '100%' }}
+                    />
                   ) : null
                 }
                 style={{ height: '100%' }}
               >
                 <div>
-                  <Text strong>节点ID: {output.nodeId}</Text>
                   <div>
                     <a href={output.fileUrl} target="_blank" rel="noreferrer">
                       下载 {output.fileType.toUpperCase()} 文件
                     </a>
+                  </div>
+                  <div style={{ marginTop: '8px' }}>
+                    <Text type="secondary">图片链接: </Text>
+                    <Paragraph copyable ellipsis={{ rows: 1, expandable: true, symbol: '展开' }}>
+                      {output.fileUrl}
+                    </Paragraph>
                   </div>
                   {output.taskCostTime && (
                     <div>
