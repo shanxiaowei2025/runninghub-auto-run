@@ -1,10 +1,22 @@
-import { useState } from 'react';
-import { Card, Typography, Button, List, Tag, Image, Collapse, Descriptions, Empty, Spin } from 'antd';
-import { CaretRightOutlined, ReloadOutlined, StopOutlined } from '@ant-design/icons';
-import { WorkflowTask, TaskStatus, TaskOutputItem } from '../types';
+import { useState, useEffect, useMemo } from 'react';
+import { Card, Typography, Button, List, Tag, Image, Collapse, Descriptions, Empty, Spin, Divider, Space, Statistic, Row, Col, Tooltip } from 'antd';
+import { 
+  CaretRightOutlined, 
+  ReloadOutlined, 
+  StopOutlined, 
+  NodeIndexOutlined, 
+  DownOutlined, 
+  UpOutlined, 
+  CheckCircleOutlined, 
+  ClockCircleOutlined, 
+  AppstoreOutlined,
+  CloseCircleOutlined,
+  SyncOutlined
+} from '@ant-design/icons';
+import { WorkflowTask, TaskStatus, TaskOutputItem, NodeInfo } from '../types';
 import { startPolling, stopPolling } from '../services/taskPolling';
 
-const { Text, Title } = Typography;
+const { Text, Title, Paragraph } = Typography;
 const { Panel } = Collapse;
 
 interface PollingTaskListProps {
@@ -13,6 +25,39 @@ interface PollingTaskListProps {
   loadingTasks?: Record<string, boolean>;
   onPollingStatusChange?: (taskId: string, isPolling: boolean) => void;
 }
+
+// 为任务增加唯一标识符
+interface EnhancedWorkflowTask extends WorkflowTask {
+  uniqueId: string;
+}
+
+// 自定义统计组件，标题不换行
+const NoWrapStatistic = ({ title, value, prefix, valueStyle }: {
+  title: string;
+  value: number;
+  prefix?: React.ReactNode;
+  valueStyle?: React.CSSProperties;
+}) => (
+  <Tooltip title={title}>
+    <div>
+      <Statistic 
+        title={
+          <div style={{ 
+            whiteSpace: 'nowrap', 
+            overflow: 'hidden', 
+            textOverflow: 'ellipsis',
+            width: '100%'
+          }}>
+            {title}
+          </div>
+        }
+        value={value} 
+        prefix={prefix} 
+        valueStyle={valueStyle}
+      />
+    </div>
+  </Tooltip>
+);
 
 export default function PollingTaskList({ 
   tasks, 
@@ -23,9 +68,60 @@ export default function PollingTaskList({
   // 组件内部状态，只在未提供外部loadingTasks时使用
   const [internalLoadingTasks, setInternalLoadingTasks] = useState<Record<string, boolean>>({});
   const [expandedTasks, setExpandedTasks] = useState<string[]>([]);
+  const [allExpanded, setAllExpanded] = useState<boolean>(true);
   
   // 使用外部提供的loadingTasks或内部状态
   const actualLoadingTasks = onPollingStatusChange ? loadingTasks : internalLoadingTasks;
+  
+  // 为每个任务生成唯一ID
+  const tasksWithUniqueIds = useMemo<EnhancedWorkflowTask[]>(() => {
+    return tasks.map((task, index) => ({
+      ...task,
+      uniqueId: task.taskId ? task.taskId : `waiting-task-${index}`
+    }));
+  }, [tasks]);
+  
+  // 计算任务统计信息
+  const taskStats = useMemo(() => {
+    const totalTasks = tasks.length;
+    
+    const completedTasks = tasks.filter(task => 
+      task.status === TaskStatus.SUCCESS || 
+      task.status === 'SUCCESS'
+    ).length;
+    
+    const waitingTasks = tasks.filter(task => 
+      task.status === TaskStatus.WAITING || 
+      task.status === 'WAITING' ||
+      task.status === TaskStatus.QUEUED || 
+      task.status === 'QUEUED'
+    ).length;
+    
+    const failedTasks = tasks.filter(task => 
+      task.status === TaskStatus.FAILED || 
+      task.status === 'FAILED'
+    ).length;
+    
+    const runningTasks = tasks.filter(task => 
+      task.status === TaskStatus.RUNNING || 
+      task.status === 'RUNNING'
+    ).length;
+    
+    return { 
+      totalTasks, 
+      completedTasks, 
+      waitingTasks,
+      failedTasks,
+      runningTasks
+    };
+  }, [tasks]);
+  
+  // 初始化时设置全部任务展开 - 使用uniqueId
+  useEffect(() => {
+    if (tasksWithUniqueIds.length > 0) {
+      setExpandedTasks(tasksWithUniqueIds.map(task => task.uniqueId));
+    }
+  }, [tasksWithUniqueIds]);
   
   // 更新任务轮询状态
   const updatePollingStatus = (taskId: string, isPolling: boolean) => {
@@ -53,13 +149,23 @@ export default function PollingTaskList({
     updatePollingStatus(taskId, false);
   };
   
-  // 切换展开状态
-  const handleExpand = (taskId: string) => {
+  // 切换展开状态 - 使用uniqueId
+  const handleExpand = (uniqueId: string) => {
     setExpandedTasks(prev => 
-      prev.includes(taskId) 
-        ? prev.filter(id => id !== taskId)
-        : [...prev, taskId]
+      prev.includes(uniqueId) 
+        ? prev.filter(id => id !== uniqueId)
+        : [...prev, uniqueId]
     );
+  };
+  
+  // 切换全部展开/收起 - 使用uniqueId
+  const toggleAllExpanded = () => {
+    if (allExpanded) {
+      setExpandedTasks([]);
+    } else {
+      setExpandedTasks(tasksWithUniqueIds.map(task => task.uniqueId));
+    }
+    setAllExpanded(!allExpanded);
   };
   
   // 获取当前状态的颜色
@@ -91,6 +197,60 @@ export default function PollingTaskList({
     }).format(date);
   };
   
+  // 渲染节点信息
+  const renderNodeInfo = (nodeInfoList: NodeInfo[]) => {
+    if (!nodeInfoList || nodeInfoList.length === 0) {
+      return null;
+    }
+    
+    // 按节点ID分组
+    const nodeGroups: Record<string, NodeInfo[]> = {};
+    nodeInfoList.forEach(node => {
+      if (!nodeGroups[node.nodeId]) {
+        nodeGroups[node.nodeId] = [];
+      }
+      nodeGroups[node.nodeId].push(node);
+    });
+    
+    return (
+      <div className="node-info-container" style={{ marginTop: '16px' }}>
+        <Divider orientation="left">
+          <NodeIndexOutlined /> 节点信息
+        </Divider>
+        <List
+          grid={{ gutter: 16, column: 1 }}
+          dataSource={Object.entries(nodeGroups)}
+          renderItem={([nodeId, nodes]) => (
+            <List.Item>
+              <Card 
+                size="small" 
+                title={`节点 ID: ${nodeId}`}
+                style={{ backgroundColor: '#f9f9f9' }}
+              >
+                <Descriptions 
+                  size="small" 
+                  column={1} 
+                  bordered
+                >
+                  {nodes.map((node, index) => (
+                    <Descriptions.Item 
+                      key={index} 
+                      label={node.fieldName}
+                    >
+                      {typeof node.fieldValue === 'string' && node.fieldValue.length > 50 
+                        ? <Paragraph ellipsis={{ rows: 2, expandable: true, symbol: '展开' }}>{node.fieldValue}</Paragraph>
+                        : node.fieldValue.toString()}
+                    </Descriptions.Item>
+                  ))}
+                </Descriptions>
+              </Card>
+            </List.Item>
+          )}
+        />
+      </div>
+    );
+  };
+  
   // 渲染输出结果
   const renderOutputs = (task: WorkflowTask) => {
     if (!task.result || typeof task.result !== 'object') {
@@ -113,67 +273,129 @@ export default function PollingTaskList({
     }
     
     return (
-      <List
-        grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 3 }}
-        dataSource={outputs}
-        renderItem={(output) => (
-          <List.Item>
-            <Card 
-              size="small" 
-              cover={
-                output.fileType.toLowerCase().match(/png|jpg|jpeg|gif|webp/) ? (
-                  <div style={{ maxHeight: 200, overflow: 'hidden' }}>
-                    <Image
-                      src={output.fileUrl}
-                      alt={`Node ${output.nodeId} output`}
-                      style={{ objectFit: 'cover', width: '100%' }}
-                    />
-                  </div>
-                ) : null
-              }
-            >
-              <div>
-                <Text strong>节点ID: {output.nodeId}</Text>
+      <div className="outputs-container" style={{ marginTop: '16px' }}>
+        <Divider orientation="left">输出结果</Divider>
+        <List
+          grid={{ gutter: 16, xs: 1, sm: 2, md: 2, lg: 3 }}
+          dataSource={outputs}
+          renderItem={(output) => (
+            <List.Item>
+              <Card 
+                size="small" 
+                cover={
+                  output.fileType.toLowerCase().match(/png|jpg|jpeg|gif|webp/) ? (
+                    <div style={{ maxHeight: 200, overflow: 'hidden' }}>
+                      <Image
+                        src={output.fileUrl}
+                        alt={`Node ${output.nodeId} output`}
+                        style={{ objectFit: 'cover', width: '100%' }}
+                      />
+                    </div>
+                  ) : null
+                }
+                style={{ height: '100%' }}
+              >
                 <div>
-                  <a href={output.fileUrl} target="_blank" rel="noreferrer">
-                    下载 {output.fileType.toUpperCase()} 文件
-                  </a>
-                </div>
-                {output.taskCostTime && (
+                  <Text strong>节点ID: {output.nodeId}</Text>
                   <div>
-                    <Text type="secondary">耗时: {output.taskCostTime}秒</Text>
+                    <a href={output.fileUrl} target="_blank" rel="noreferrer">
+                      下载 {output.fileType.toUpperCase()} 文件
+                    </a>
                   </div>
-                )}
-              </div>
-            </Card>
-          </List.Item>
-        )}
-      />
+                  {output.taskCostTime && (
+                    <div>
+                      <Text type="secondary">耗时: {output.taskCostTime}秒</Text>
+                    </div>
+                  )}
+                </div>
+              </Card>
+            </List.Item>
+          )}
+        />
+      </div>
     );
   };
   
   return (
     <div className="polling-task-list">
-      <Title level={4} className="mb-4">轮询任务列表</Title>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <Title level={4} style={{ margin: 0 }}>轮询任务列表</Title>
+        {tasksWithUniqueIds.length > 0 && (
+          <Button 
+            type="link" 
+            icon={allExpanded ? <UpOutlined /> : <DownOutlined />}
+            onClick={toggleAllExpanded}
+          >
+            {allExpanded ? '收起全部' : '展开全部'}
+          </Button>
+        )}
+      </div>
       
-      {tasks.length === 0 ? (
+      {tasksWithUniqueIds.length > 0 && (
+        <div style={{ marginBottom: '20px', background: '#f5f5f5', padding: '16px', borderRadius: '8px' }}>
+          <Row gutter={[16, 16]}>
+            <Col xs={12} sm={8} md={4}>
+              <NoWrapStatistic 
+                title="全部" 
+                value={taskStats.totalTasks} 
+                prefix={<AppstoreOutlined />} 
+                valueStyle={{ color: '#1677ff' }}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <NoWrapStatistic 
+                title="已完成" 
+                value={taskStats.completedTasks} 
+                prefix={<CheckCircleOutlined />} 
+                valueStyle={{ color: '#52c41a' }}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <NoWrapStatistic 
+                title="进行中" 
+                value={taskStats.runningTasks} 
+                prefix={<SyncOutlined spin={taskStats.runningTasks > 0} />} 
+                valueStyle={{ color: '#1890ff' }}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <NoWrapStatistic 
+                title="等待中" 
+                value={taskStats.waitingTasks} 
+                prefix={<ClockCircleOutlined />} 
+                valueStyle={{ color: '#faad14' }}
+              />
+            </Col>
+            <Col xs={12} sm={8} md={4}>
+              <NoWrapStatistic 
+                title="失败" 
+                value={taskStats.failedTasks} 
+                prefix={<CloseCircleOutlined />} 
+                valueStyle={{ color: '#f5222d' }}
+              />
+            </Col>
+          </Row>
+        </div>
+      )}
+      
+      {tasksWithUniqueIds.length === 0 ? (
         <Empty description="暂无任务，请创建新工作流" />
       ) : (
         <List
-          dataSource={tasks}
+          dataSource={tasksWithUniqueIds}
           renderItem={(task) => (
-            <List.Item key={task.taskId}>
+            <List.Item key={task.uniqueId}>
               <Card 
                 className="w-full" 
                 size="small"
                 title={
-                  <div className="flex justify-between items-center">
-                    <Text strong>任务ID: {task.taskId}</Text>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text strong>任务ID: {task.taskId || '等待中'}</Text>
                     <Tag color={getStatusColor(task.status)}>{task.status}</Tag>
                   </div>
                 }
                 extra={
-                  <div className="flex space-x-2">
+                  <div style={{ display: 'flex', gap: '8px' }}>
                     {actualLoadingTasks[task.taskId] ? (
                       <Button 
                         icon={<StopOutlined />} 
@@ -200,55 +422,39 @@ export default function PollingTaskList({
                     )}
                     <Button 
                       type="text" 
-                      onClick={() => handleExpand(task.taskId)}
+                      onClick={() => handleExpand(task.uniqueId)}
                     >
-                      {expandedTasks.includes(task.taskId) ? '收起' : '展开'}
+                      {expandedTasks.includes(task.uniqueId) ? '收起' : '展开'}
                     </Button>
                   </div>
                 }
+                style={{ width: '100%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}
               >
                 <div style={{ marginTop: '8px' }}>
-                  <Text type="secondary">创建时间: {formatDate(task.createdAt)}</Text>
-                  {task.completedAt && (
-                    <div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+                    <Text type="secondary">创建时间: {formatDate(task.createdAt)}</Text>
+                    {task.completedAt && (
                       <Text type="secondary">完成时间: {formatDate(task.completedAt)}</Text>
-                    </div>
-                  )}
+                    )}
+                  </div>
                   
                   {actualLoadingTasks[task.taskId] && task.status !== TaskStatus.SUCCESS && (
-                    <div className="mt-2">
+                    <div style={{ marginTop: '8px' }}>
                       <Spin size="small" /> <Text type="secondary">正在轮询查询任务状态...</Text>
                     </div>
                   )}
                   
-                  {expandedTasks.includes(task.taskId) && (
-                    <div className="mt-4">
-                      <Collapse 
-                        ghost 
-                        bordered={false}
-                        expandIcon={({ isActive }) => <CaretRightOutlined rotate={isActive ? 90 : 0} />}
-                      >
-                        <Panel header="任务详情" key="1">
-                          <Descriptions column={1} bordered size="small">
-                            <Descriptions.Item label="客户端ID">{task.clientId}</Descriptions.Item>
-                            <Descriptions.Item label="任务状态">{task.status}</Descriptions.Item>
-                            
-                            {task.error && (
-                              <Descriptions.Item label="错误">
-                                <pre className="bg-red-50 text-red-800 p-3 rounded text-sm overflow-x-auto max-h-60">
-                                  {task.error}
-                                </pre>
-                              </Descriptions.Item>
-                            )}
-                          </Descriptions>
-                        </Panel>
-                        
-                        {(task.status === TaskStatus.SUCCESS || task.result) && (
-                          <Panel header="输出结果" key="2">
-                            {renderOutputs(task)}
-                          </Panel>
-                        )}
-                      </Collapse>
+                  {expandedTasks.includes(task.uniqueId) && (
+                    <div style={{ marginTop: '16px' }}>
+                      {/* 显示节点信息（如果存在） */}
+                      {task.nodeInfoList && task.nodeInfoList.length > 0 && 
+                        renderNodeInfo(task.nodeInfoList)
+                      }
+                      
+                      {/* 显示任务结果（如果存在） */}
+                      {(task.status === TaskStatus.SUCCESS || task.result) && 
+                        renderOutputs(task)
+                      }
                     </div>
                   )}
                 </div>

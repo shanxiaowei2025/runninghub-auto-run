@@ -37,6 +37,7 @@ export interface WorkflowTask {
   createdAt: string;
   completedAt?: string;
   error?: string;
+  nodeInfoList?: NodeInfo[];
 }
 
 // 轮询任务相关类型定义

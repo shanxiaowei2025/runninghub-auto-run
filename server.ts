@@ -251,7 +251,7 @@ async function createServer() {
     // 创建工作流
     socket.on('createWorkflow', async (data) => {
       try {
-        const { apiKey, workflowId, nodeInfoList } = data;
+        const { apiKey, workflowId, nodeInfoList, _timestamp } = data;
         
         // 构建请求参数对象，仅当 nodeInfoList 存在且不为空时才包含
         const requestParams = {
@@ -283,16 +283,17 @@ async function createServer() {
             apiKey: data.apiKey,
             workflowId: data.workflowId,
             nodeInfoList: data.nodeInfoList,
-            createdAt: new Date().toISOString()
+            createdAt: _timestamp || new Date().toISOString()
           };
           
           waitingTasks.push(task);
           
-          // 通知客户端任务正在等待，确保状态为WAITING
+          // 通知客户端任务正在等待，确保状态为WAITING，并传递nodeInfoList
           socket.emit('workflowCreated', {
             taskId: null, // 确保taskId为null
             status: 'WAITING', // 使用字符串WAITING
-            createdAt: task.createdAt
+            createdAt: task.createdAt,
+            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           });
           
           // 如果当前没有正在处理的任务，尝试处理这个新的等待任务
@@ -312,7 +313,7 @@ async function createServer() {
             apiKey: data.apiKey,
             workflowId: data.workflowId,
             nodeInfoList: data.nodeInfoList,
-            createdAt: new Date().toISOString()
+            createdAt: _timestamp || new Date().toISOString()
           };
           
           waitingTasks.push(task);
@@ -320,7 +321,8 @@ async function createServer() {
           socket.emit('workflowCreated', {
             taskId: null,
             status: 'RETRY', // 自定义状态：稍后重试
-            createdAt: task.createdAt
+            createdAt: task.createdAt,
+            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           });
           return;
         }
@@ -331,13 +333,15 @@ async function createServer() {
           socket.emit('workflowCreated', {
             taskId: response.data.data.taskId,
             status: response.data.data.taskStatus,
-            createdAt: new Date().toISOString()
+            createdAt: _timestamp || new Date().toISOString(),
+            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           });
         } else {
           socket.emit('workflowCreated', {
             taskId: null,
             status: 'SUCCESS',
-            createdAt: new Date().toISOString()
+            createdAt: _timestamp || new Date().toISOString(),
+            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           });
         }
       } catch (error) {

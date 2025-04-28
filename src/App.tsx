@@ -156,7 +156,7 @@ function App() {
         return prevTasks.map(task => {
           // 根据原始创建时间匹配任务
           if (task.createdAt === data.originalCreatedAt) {
-            // 更新任务状态和ID
+            // 更新任务状态和ID，保留nodeInfoList和其他属性
             return {
               ...task,
               taskId: data.taskId,
