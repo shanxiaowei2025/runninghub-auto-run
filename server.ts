@@ -173,6 +173,7 @@ interface WorkflowTask {
   createdAt: string;
   retryCount?: number; // 添加重试计数器
   clientId?: string; // 添加客户端ID
+  pendingProcess?: boolean; // 添加等待处理标记
 }
 
 // 重试配置
@@ -444,148 +445,189 @@ export function deleteTask(taskId?: string, createdAt?: string): boolean {
 // 获取客户端的所有任务
 function getClientTasks(clientId: string): Task[] {
   try {
-    // 检查clientId是否有效
-    if (!clientId) {
-      console.error('请求的clientId为空，拒绝查询任务');
-      return [];
-    }
-
-    // 检查任务表是否存在
-    const tableExists = db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='tasks'").get();
-    if (!tableExists) {
-      console.log('任务表不存在，尝试创建...');
-      // 创建任务表
-      db.exec(`
-        CREATE TABLE IF NOT EXISTS tasks (
-          id INTEGER PRIMARY KEY AUTOINCREMENT,
-          taskId TEXT,
-          clientId TEXT NOT NULL,
-          status TEXT NOT NULL,
-          result TEXT,
-          createdAt TEXT NOT NULL,
-          completedAt TEXT,
-          error TEXT,
-          nodeInfoList TEXT,
-          socketId TEXT
-        )
-      `);
-      console.log('任务表已创建，但尚无数据');
-      return [];
-    }
+    const columnMap = global.columnMapping || {};
+    const tasksStmt = db.prepare(`
+      SELECT 
+        ${columnMap.id || 'id'}, 
+        ${columnMap.taskId || 'taskId'}, 
+        ${columnMap.clientId || 'clientId'}, 
+        ${columnMap.status || 'status'}, 
+        ${columnMap.result || 'result'}, 
+        ${columnMap.createdAt || 'createdAt'}, 
+        ${columnMap.completedAt || 'completedAt'}, 
+        ${columnMap.error || 'error'},
+        ${columnMap.nodeInfoList || 'nodeInfoList'}
+      FROM tasks 
+      WHERE ${columnMap.clientId || 'clientId'} = ?
+      ORDER BY ${columnMap.createdAt || 'createdAt'} DESC
+    `);
     
-    // 获取表中的所有列名
-    const columns = db.prepare("PRAGMA table_info(tasks)").all();
-    const columnNames = columns.map((col: unknown) => {
-      const typedCol = col as { name: string };
-      return typedCol.name;
-    });
-    console.log('数据库实际列名:', columnNames);
+    const tasks = tasksStmt.all(clientId) as Record<string, unknown>[];
     
-    // 尝试查找所有任务数据
-    const allTasks = db.prepare(`SELECT * FROM tasks`).all() as Record<string, unknown>[];
-    console.log('数据库中的所有任务数量:', allTasks.length);
-    
-    // 检查是否存在蛇形命名的列
-    const hasSnakeCaseColumns = columnNames.some(name => name.includes('_'));
-    console.log('表使用蛇形命名法:', hasSnakeCaseColumns);
-    
-    // 确定要查询的clientId列名
-    let clientIdColumn = 'clientId';
-    
-    if (columnNames.includes('client_id')) {
-      clientIdColumn = 'client_id';
-    } else if (columnNames.includes('clientId')) {
-      clientIdColumn = 'clientId';
-    } else {
-      // 查找包含"client"的列名
-      const clientColumn = columnNames.find(name => 
-        name.toLowerCase().includes('client')
-      );
-      if (clientColumn) {
-        clientIdColumn = clientColumn;
-      }
-    }
-    
-    console.log('使用的clientId列名:', clientIdColumn, '要查询的clientId:', clientId);
-    
-    // 构建查询语句，使用正确的列名
-    let sql = '';
-    
-    // 尝试多种查询方式
-    let tasks: Record<string, unknown>[] = [];
-    
-    try {
-      // 使用精确匹配查询
-      sql = `
-        SELECT * FROM tasks 
-        WHERE ${clientIdColumn} = ?
-        ORDER BY id DESC
-      `;
-      console.log('执行SQL查询:', sql, '参数:', clientId);
-      tasks = db.prepare(sql).all(clientId) as Record<string, unknown>[];
-      console.log('查询结果数量:', tasks.length);
-      
-      // 如果没有返回任务，记录信息但不再尝试其他clientId值
-      if (tasks.length === 0) {
-        console.log(`未找到匹配clientId为 ${clientId} 的任务`);
-        // 仅用于调试 - 报告数据库中的所有clientId值
-        const distinctClients = db.prepare(`SELECT DISTINCT ${clientIdColumn} FROM tasks`).all() as Record<string, unknown>[];
-        console.log('数据库中的所有clientId值:', distinctClients.map(item => item[clientIdColumn]));
-      }
-    } catch (queryError) {
-      console.error('查询任务失败:', queryError);
-      return [];
-    }
-    
-    // 为每个任务打印详情
-    for (const task of tasks) {
-      console.log('找到任务:', task);
-    }
-
-    return tasks.map(task => {
-      let result: unknown = null;
-      let nodeInfoList: unknown[] | null = null;
-      
-      try {
-        if (task.result && typeof task.result === 'string') {
-          result = JSON.parse(task.result);
-        }
-      } catch (e) {
-        console.error('Error parsing result:', e);
-      }
-      
-      try {
-        if (task.nodeInfoList && typeof task.nodeInfoList === 'string') {
-          nodeInfoList = JSON.parse(task.nodeInfoList);
-        } else if (task.node_info_list && typeof task.node_info_list === 'string') {
-          nodeInfoList = JSON.parse(task.node_info_list as string);
-        }
-      } catch (e) {
-        console.error('Error parsing nodeInfoList:', e);
-      }
-      
-      // 创建标准化的任务对象 - 确保clientId是原始查询值
-      const standardizedTask: Task = {
-        taskId: (task.taskId as string) || (task.task_id as string) || null,
-        clientId: clientId, // 使用查询的clientId值，确保一致性
-        status: (task.status as string) || 'UNKNOWN',
-        createdAt: (task.createdAt as string) || (task.created_at as string) || new Date().toISOString(),
-        result,
-        nodeInfoList: nodeInfoList as unknown[] | undefined,
+    // 将结果转换为任务对象数组
+    const result = tasks.map(task => {
+      const taskObj: Task = {
+        taskId: task[columnMap.taskId || 'taskId'] as string,
+        clientId: task[columnMap.clientId || 'clientId'] as string,
+        status: task[columnMap.status || 'status'] as string,
+        createdAt: task[columnMap.createdAt || 'createdAt'] as string,
+        result: null
       };
       
-      // 添加其他属性
-      for (const [key, value] of Object.entries(task)) {
-        if (!Object.hasOwn(standardizedTask, key)) {
-          standardizedTask[key] = value;
+      // 处理JSON解析
+      if (task[columnMap.result || 'result']) {
+        try {
+          taskObj.result = JSON.parse(task[columnMap.result || 'result'] as string);
+        } catch {
+          taskObj.result = task[columnMap.result || 'result'];
         }
       }
       
-      return standardizedTask;
+      // 添加完成时间（如果存在）
+      if (task[columnMap.completedAt || 'completedAt']) {
+        taskObj.completedAt = task[columnMap.completedAt || 'completedAt'] as string;
+      }
+      
+      // 添加错误信息（如果存在）
+      if (task[columnMap.error || 'error']) {
+        taskObj.error = task[columnMap.error || 'error'] as string;
+      }
+      
+      // 添加nodeInfoList（如果存在）
+      if (task[columnMap.nodeInfoList || 'nodeInfoList']) {
+        try {
+          taskObj.nodeInfoList = JSON.parse(task[columnMap.nodeInfoList || 'nodeInfoList'] as string);
+        } catch {
+          // 解析失败则忽略
+        }
+      }
+      
+      return taskObj;
     });
-  } catch (e) {
-    console.error('Error getting client tasks:', e);
-    console.error('错误详情:', e instanceof Error ? e.message : String(e));
+    
+    // 找出并恢复WAITING状态的任务（重新添加到等待队列）
+    result.forEach(task => {
+      if ((task.status === 'WAITING' || task.status === 'QUEUED') && task.nodeInfoList) {
+        console.log(`找到客户端 ${clientId} 的等待中任务，重新加入等待队列`);
+        
+        // 从数据库获取apiKey和workflowId
+        const taskDetails = db.prepare(`
+          SELECT * FROM tasks
+          WHERE ${columnMap.createdAt || 'createdAt'} = ?
+        `).get(task.createdAt) as Record<string, unknown>;
+        
+        if (taskDetails) {
+          // 检查我们是否已经有一个相同createdAt的任务在等待队列中
+          const existingTask = waitingTasks.find(t => t.createdAt === task.createdAt);
+          if (existingTask) {
+            console.log('任务已在等待队列中，不重复添加');
+            return;
+          }
+          
+          // 从task.nodeInfoList中提取apiKey和workflowId
+          const nodeInfo = task.nodeInfoList as Array<Record<string, unknown>>;
+          let apiKey = '';
+          let workflowId = '';
+          
+          // 尝试从nodeInfoList中提取信息
+          if (nodeInfo && nodeInfo.length > 0) {
+            const firstNode = nodeInfo[0];
+            if (firstNode.fieldName === 'apiKey' && typeof firstNode.fieldValue === 'string') {
+              apiKey = firstNode.fieldValue;
+            }
+            
+            // 尝试找到workflowId
+            const workflowNode = nodeInfo.find(node => 
+              node.fieldName === 'workflowId' && typeof node.fieldValue === 'string'
+            );
+            
+            if (workflowNode && typeof workflowNode.fieldValue === 'string') {
+              workflowId = workflowNode.fieldValue;
+            }
+          }
+          
+          // 如果获取不到必要信息，从数据库任务记录中的字符串解析
+          if (!apiKey || !workflowId) {
+            try {
+              // 显式提取节点信息，避免直接使用taskDetails索引
+              const nodeInfoKey = columnMap.nodeInfoList || 'nodeInfoList';
+              const nodeInfoValue = taskDetails ? taskDetails[nodeInfoKey] : null;
+              const nodeInfoString = nodeInfoValue as string;
+              
+              if (nodeInfoString) {
+                const parsedNodeInfo = JSON.parse(nodeInfoString) as Array<Record<string, unknown>>;
+                
+                // 尝试提取apiKey和workflowId
+                for (const node of parsedNodeInfo) {
+                  if (node.fieldName === 'apiKey' && typeof node.fieldValue === 'string') {
+                    apiKey = node.fieldValue;
+                  } else if (node.fieldName === 'workflowId' && typeof node.fieldValue === 'string') {
+                    workflowId = node.fieldValue;
+                  }
+                }
+              }
+            } catch (error) {
+              console.error('解析nodeInfoList时出错:', error);
+            }
+          }
+          
+          // 只有当我们有了必要的信息才重新添加任务
+          if (apiKey && workflowId && task.nodeInfoList) {
+            // 创建新的等待任务并添加到队列
+            const waitingTask: WorkflowTask = {
+              socketId: '',  // 新连接无法恢复旧的socketId
+              apiKey,
+              workflowId,
+              nodeInfoList: task.nodeInfoList as Record<string, unknown>[],
+              createdAt: task.createdAt,
+              clientId: task.clientId
+            };
+            
+            // 检查是否已经在队列中
+            const isInWaitingQueue = waitingTasks.some(t => t.createdAt === waitingTask.createdAt);
+            const isInPendingQueue = pendingTasks.some(t => t.createdAt === waitingTask.createdAt);
+            
+            if (!isInWaitingQueue && !isInPendingQueue) {
+              console.log(`将任务重新添加到等待队列: ${task.createdAt}`);
+              waitingTasks.push(waitingTask);
+              
+              // 尝试处理等待队列中的任务
+              if (waitingTasks.length > 0 && processingTaskCount < 3) {
+                setTimeout(trySubmitWaitingTask, 1000);
+                
+                // 设置一个标记，表示此任务已被加入队列等待处理
+                task.pendingProcess = true;
+                
+                // 向与此clientId关联的所有socket广播通知，告知任务已被重新加入队列
+                // 找到所有当前连接的socket
+                const connectedSockets = Array.from(ioServer.sockets.sockets.values());
+                
+                // 广播任务更新状态通知（仅在没有指定socketId时）
+                if (!waitingTask.socketId && connectedSockets.length > 0) {
+                  console.log(`广播任务状态更新通知 (clientId: ${clientId}, createdAt: ${task.createdAt})`);
+                  
+                  // 广播给所有客户端，客户端会根据clientId和createdAt过滤
+                  ioServer.emit('taskRecoveryUpdate', {
+                    clientId,
+                    createdAt: task.createdAt,
+                    originalCreatedAt: task.createdAt,
+                    taskId: null,
+                    status: 'WAITING', // 保持为WAITING状态，直到真正被处理
+                    message: '任务已重新加入处理队列'
+                  });
+                }
+              }
+            }
+          } else {
+            console.log('无法恢复等待任务，缺少必要信息');
+          }
+        }
+      }
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('获取客户端任务失败:', error);
     return [];
   }
 }
@@ -638,125 +680,141 @@ async function trySubmitWaitingTask() {
       waitingTasks.shift();
       
       // 通知客户端任务已成功创建，更新现有任务而不是创建新任务
-      const socket = ioServer.sockets.sockets.get(task.socketId);
-      if (socket) {
-        // 添加 taskCompleted 事件发送
-        if (response.data.data) {
-          console.log('发送任务状态更新:', task.createdAt, response.data.data.taskId);
+      const socket = task.socketId ? ioServer.sockets.sockets.get(task.socketId) : null;
+      
+      // 首先更新数据库中的任务状态
+      if (response.data.data) {
+        console.log('更新任务状态:', task.createdAt, response.data.data.taskId);
+        
+        const updateData = {
+          originalCreatedAt: task.createdAt,
+          taskId: response.data.data.taskId,
+          status: response.data.data.taskStatus,
+          createdAt: task.createdAt
+        };
+        
+        // 更新数据库中的任务
+        // 先基于createdAt查找任务，然后更新taskId和status
+        const columnMap = global.columnMapping || {};
+        
+        // 确保使用正确的列名
+        let clientIdCol = columnMap.clientId || 'clientId';
+        if (clientIdCol === 'clientId' && checkColumnExists('tasks', 'client_id')) {
+          clientIdCol = 'client_id';
+        }
+        
+        let createdAtCol = columnMap.createdAt || 'createdAt';
+        if (createdAtCol === 'createdAt' && checkColumnExists('tasks', 'created_at')) {
+          createdAtCol = 'created_at';
+        }
+        
+        let taskIdCol = columnMap.taskId || 'taskId';
+        if (taskIdCol === 'taskId' && checkColumnExists('tasks', 'task_id')) {
+          taskIdCol = 'task_id';
+        }
+        
+        const statusCol = columnMap.status || 'status';
+        
+        // 确保任务的clientId不为空
+        const clientIdValue = task.clientId;
+        if (!clientIdValue) {
+          console.error('任务的clientId为空，无法更新');
+          return;
+        }
+        
+        const updateStmt = db.prepare(`
+          UPDATE tasks 
+          SET ${taskIdCol} = ?, ${statusCol} = ? 
+          WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
+        `);
+        
+        try {
+          updateStmt.run(
+            response.data.data.taskId,
+            response.data.data.taskStatus,
+            task.createdAt,
+            clientIdValue
+          );
+          console.log(`任务状态已更新 [${clientIdValue}]:`, response.data.data.taskStatus);
           
-          const updateData = {
-            originalCreatedAt: task.createdAt,
-            taskId: response.data.data.taskId,
-            status: response.data.data.taskStatus,
-            createdAt: task.createdAt
-          };
-          
-          // 更新数据库中的任务
-          // 先基于createdAt查找任务，然后更新taskId和status
-          const columnMap = global.columnMapping || {};
-          
-          // 确保使用正确的列名
-          let clientIdCol = columnMap.clientId || 'clientId';
-          if (clientIdCol === 'clientId' && checkColumnExists('tasks', 'client_id')) {
-            clientIdCol = 'client_id';
+          // 如果有socket连接，通知客户端
+          if (socket) {
+            socket.emit('workflowStatusUpdate', updateData);
+          } else {
+            console.log('没有活跃的socket连接，广播更新通知');
+            
+            // 广播给所有客户端，处理恢复的任务状态更新
+            ioServer.emit('workflowStatusUpdate', {
+              ...updateData,
+              clientId: clientIdValue, // 添加clientId以便前端可以过滤
+              recovered: true // 标记为恢复的任务
+            });
           }
-          
-          let createdAtCol = columnMap.createdAt || 'createdAt';
-          if (createdAtCol === 'createdAt' && checkColumnExists('tasks', 'created_at')) {
-            createdAtCol = 'created_at';
-          }
-          
-          let taskIdCol = columnMap.taskId || 'taskId';
-          if (taskIdCol === 'taskId' && checkColumnExists('tasks', 'task_id')) {
-            taskIdCol = 'task_id';
-          }
-          
-          const statusCol = columnMap.status || 'status';
-          
-          // 确保任务的clientId不为空
-          const clientIdValue = task.clientId;
-          if (!clientIdValue) {
-            console.error('任务的clientId为空，无法更新');
-            return;
-          }
-          
-          const updateStmt = db.prepare(`
-            UPDATE tasks 
-            SET ${taskIdCol} = ?, ${statusCol} = ? 
-            WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
-          `);
-          
-          try {
-            updateStmt.run(
-              response.data.data.taskId,
-              response.data.data.taskStatus,
-              task.createdAt,
-              clientIdValue
-            );
-            console.log(`任务状态已更新 [${clientIdValue}]:`, response.data.data.taskStatus);
-          } catch (updateError) {
-            console.error('更新任务状态失败:', updateError);
-          }
-          
-          socket.emit('workflowStatusUpdate', updateData);
           
           // 关键：增加计数器，因为任务成功创建
           processingTaskCount++;
           console.log(`增加处理中任务计数: ${processingTaskCount}`);
-        } else {
-          const updateData = {
-            originalCreatedAt: task.createdAt,
-            taskId: null,
-            status: 'SUCCESS',
-            createdAt: task.createdAt
-          };
+        } catch (updateError) {
+          console.error('更新任务状态失败:', updateError);
+        }
+      } else {
+        const updateData = {
+          originalCreatedAt: task.createdAt,
+          taskId: null,
+          status: 'SUCCESS',
+          createdAt: task.createdAt
+        };
+        
+        // 更新数据库中的任务
+        const columnMap = global.columnMapping || {};
+        
+        // 确保使用正确的列名
+        let clientIdCol = columnMap.clientId || 'clientId';
+        if (clientIdCol === 'clientId' && checkColumnExists('tasks', 'client_id')) {
+          clientIdCol = 'client_id';
+        }
+        
+        let createdAtCol = columnMap.createdAt || 'createdAt';
+        if (createdAtCol === 'createdAt' && checkColumnExists('tasks', 'created_at')) {
+          createdAtCol = 'created_at';
+        }
+        
+        const statusCol = columnMap.status || 'status';
+        let completedAtCol = columnMap.completedAt || 'completedAt';
+        if (completedAtCol === 'completedAt' && checkColumnExists('tasks', 'completed_at')) {
+          completedAtCol = 'completed_at';
+        }
+        
+        // 确保任务的clientId不为空
+        const clientIdValue = task.clientId;
+        if (!clientIdValue) {
+          console.error('任务的clientId为空，无法更新');
+          return;
+        }
+        
+        const updateStmt = db.prepare(`
+          UPDATE tasks 
+          SET ${statusCol} = ?, ${completedAtCol} = ? 
+          WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
+        `);
+        
+        try {
+          updateStmt.run(
+            'SUCCESS',
+            new Date().toISOString(),
+            task.createdAt,
+            clientIdValue
+          );
+          console.log(`任务已标记为完成 [${clientIdValue}]`);
           
-          // 更新数据库中的任务
-          const columnMap = global.columnMapping || {};
-          
-          // 确保使用正确的列名
-          let clientIdCol = columnMap.clientId || 'clientId';
-          if (clientIdCol === 'clientId' && checkColumnExists('tasks', 'client_id')) {
-            clientIdCol = 'client_id';
+          // 如果有socket连接，通知客户端
+          if (socket) {
+            socket.emit('workflowStatusUpdate', updateData);
+          } else {
+            console.log('没有活跃的socket连接，跳过客户端通知');
           }
-          
-          let createdAtCol = columnMap.createdAt || 'createdAt';
-          if (createdAtCol === 'createdAt' && checkColumnExists('tasks', 'created_at')) {
-            createdAtCol = 'created_at';
-          }
-          
-          const statusCol = columnMap.status || 'status';
-          let completedAtCol = columnMap.completedAt || 'completedAt';
-          if (completedAtCol === 'completedAt' && checkColumnExists('tasks', 'completed_at')) {
-            completedAtCol = 'completed_at';
-          }
-          
-          // 确保任务的clientId不为空
-          const clientIdValue = task.clientId;
-          if (!clientIdValue) {
-            console.error('任务的clientId为空，无法更新');
-            return;
-          }
-          
-          const updateStmt = db.prepare(`
-            UPDATE tasks 
-            SET ${statusCol} = ?, ${completedAtCol} = ? 
-            WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
-          `);
-          
-          try {
-            updateStmt.run(
-              'SUCCESS',
-              new Date().toISOString(),
-              task.createdAt,
-              clientIdValue
-            );
-            console.log(`任务已标记为完成 [${clientIdValue}]`);
-          } catch (updateError) {
-            console.error('更新任务状态失败:', updateError);
-          }
-          
-          socket.emit('workflowStatusUpdate', updateData);
+        } catch (updateError) {
+          console.error('更新任务状态失败:', updateError);
         }
       }
     } else {
@@ -774,37 +832,76 @@ async function trySubmitWaitingTask() {
       } else {
         console.error(`创建任务失败，已达到最大重试次数(${MAX_RETRY_ATTEMPTS})，放弃任务`);
         
+        // 从等待队列中移除失败的任务
+        waitingTasks.shift();
+        
         // 通知客户端任务失败
-        const socket = ioServer.sockets.sockets.get(task.socketId);
-        if (socket) {
-          const updateData = {
-            originalCreatedAt: task.createdAt,
-            taskId: null,
-            status: 'FAILED',
-            createdAt: task.createdAt,
-            error: '任务创建失败，请稍后重试'
-          };
-          
-          // 更新数据库中的任务
-          const columnMap = global.columnMapping || {};
-          const updateStmt = db.prepare(`
-            UPDATE tasks 
-            SET ${columnMap.status || 'status'} = ?, ${columnMap.error || 'error'} = ?, ${columnMap.completedAt || 'completedAt'} = ?
-            WHERE ${columnMap.createdAt || 'createdAt'} = ? AND ${columnMap.clientId || 'clientId'} = ?
-          `);
+        const socket = task.socketId ? ioServer.sockets.sockets.get(task.socketId) : null;
+        const updateData = {
+          originalCreatedAt: task.createdAt,
+          taskId: null,
+          status: 'FAILED',
+          createdAt: task.createdAt,
+          error: '任务创建失败，请稍后重试'
+        };
+        
+        // 更新数据库中的任务
+        const columnMap = global.columnMapping || {};
+        
+        // 确保使用正确的列名
+        let clientIdCol = columnMap.clientId || 'clientId';
+        if (clientIdCol === 'clientId' && checkColumnExists('tasks', 'client_id')) {
+          clientIdCol = 'client_id';
+        }
+        
+        let createdAtCol = columnMap.createdAt || 'createdAt';
+        if (createdAtCol === 'createdAt' && checkColumnExists('tasks', 'created_at')) {
+          createdAtCol = 'created_at';
+        }
+        
+        const statusCol = columnMap.status || 'status';
+        let errorCol = columnMap.error || 'error';
+        if (errorCol === 'error' && checkColumnExists('tasks', 'error_msg')) {
+          errorCol = 'error_msg';
+        }
+        
+        let completedAtCol = columnMap.completedAt || 'completedAt';
+        if (completedAtCol === 'completedAt' && checkColumnExists('tasks', 'completed_at')) {
+          completedAtCol = 'completed_at';
+        }
+        
+        // 确保任务的clientId不为空
+        const clientIdValue = task.clientId;
+        if (!clientIdValue) {
+          console.error('任务的clientId为空，无法更新');
+          return;
+        }
+        
+        const updateStmt = db.prepare(`
+          UPDATE tasks 
+          SET ${statusCol} = ?, ${errorCol} = ?, ${completedAtCol} = ? 
+          WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
+        `);
+        
+        try {
           updateStmt.run(
             'FAILED',
             '任务创建失败，请稍后重试',
             new Date().toISOString(),
             task.createdAt,
-            task.clientId || 'default'
+            clientIdValue
           );
+          console.log(`任务已标记为失败 [${clientIdValue}]`);
           
-          socket.emit('workflowStatusUpdate', updateData);
+          // 如果有socket连接，通知客户端
+          if (socket) {
+            socket.emit('workflowStatusUpdate', updateData);
+          } else {
+            console.log('没有活跃的socket连接，跳过客户端通知');
+          }
+        } catch (updateError) {
+          console.error('更新任务状态失败:', updateError);
         }
-        
-        // 从等待队列中移除失败的任务
-        waitingTasks.shift();
       }
     }
   } catch (error) {
@@ -821,37 +918,76 @@ async function trySubmitWaitingTask() {
     } else {
       console.error(`创建等待中的工作流失败，已达到最大重试次数(${MAX_RETRY_ATTEMPTS})，放弃任务:`, error);
       
+      // 从等待队列中移除失败的任务
+      waitingTasks.shift();
+      
       // 通知客户端任务失败
-      const socket = ioServer.sockets.sockets.get(task.socketId);
-      if (socket) {
-        const updateData = {
-          originalCreatedAt: task.createdAt,
-          taskId: null,
-          status: 'FAILED',
-          createdAt: task.createdAt,
-          error: '任务创建失败，请稍后重试'
-        };
-        
-        // 更新数据库中的任务
-        const columnMap = global.columnMapping || {};
-        const updateStmt = db.prepare(`
-          UPDATE tasks 
-          SET ${columnMap.status || 'status'} = ?, ${columnMap.error || 'error'} = ?, ${columnMap.completedAt || 'completedAt'} = ?
-          WHERE ${columnMap.createdAt || 'createdAt'} = ? AND ${columnMap.clientId || 'clientId'} = ?
-        `);
+      const socket = task.socketId ? ioServer.sockets.sockets.get(task.socketId) : null;
+      const updateData = {
+        originalCreatedAt: task.createdAt,
+        taskId: null,
+        status: 'FAILED',
+        createdAt: task.createdAt,
+        error: '任务创建失败，请稍后重试'
+      };
+      
+      // 更新数据库中的任务
+      const columnMap = global.columnMapping || {};
+      
+      // 确保使用正确的列名
+      let clientIdCol = columnMap.clientId || 'clientId';
+      if (clientIdCol === 'clientId' && checkColumnExists('tasks', 'client_id')) {
+        clientIdCol = 'client_id';
+      }
+      
+      let createdAtCol = columnMap.createdAt || 'createdAt';
+      if (createdAtCol === 'createdAt' && checkColumnExists('tasks', 'created_at')) {
+        createdAtCol = 'created_at';
+      }
+      
+      const statusCol = columnMap.status || 'status';
+      let errorCol = columnMap.error || 'error';
+      if (errorCol === 'error' && checkColumnExists('tasks', 'error_msg')) {
+        errorCol = 'error_msg';
+      }
+      
+      let completedAtCol = columnMap.completedAt || 'completedAt';
+      if (completedAtCol === 'completedAt' && checkColumnExists('tasks', 'completed_at')) {
+        completedAtCol = 'completed_at';
+      }
+      
+      // 确保任务的clientId不为空
+      const clientIdValue = task.clientId;
+      if (!clientIdValue) {
+        console.error('任务的clientId为空，无法更新');
+        return;
+      }
+      
+      const updateStmt = db.prepare(`
+        UPDATE tasks 
+        SET ${statusCol} = ?, ${errorCol} = ?, ${completedAtCol} = ? 
+        WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
+      `);
+      
+      try {
         updateStmt.run(
           'FAILED',
           '任务创建失败，请稍后重试',
           new Date().toISOString(),
           task.createdAt,
-          task.clientId || 'default'
+          clientIdValue
         );
+        console.log(`任务已标记为失败 [${clientIdValue}]`);
         
-        socket.emit('workflowStatusUpdate', updateData);
+        // 如果有socket连接，通知客户端
+        if (socket) {
+          socket.emit('workflowStatusUpdate', updateData);
+        } else {
+          console.log('没有活跃的socket连接，跳过客户端通知');
+        }
+      } catch (updateError) {
+        console.error('更新任务状态失败:', updateError);
       }
-      
-      // 从等待队列中移除失败的任务
-      waitingTasks.shift();
     }
   }
 }
@@ -1071,11 +1207,17 @@ async function createServer() {
 
     socket.on('disconnect', () => {
       console.log('客户端断开连接', socket.id);
-      // 从队列中移除该客户端的所有任务
-      const index = pendingTasks.findIndex(task => task.socketId === socket.id);
-      if (index !== -1) {
-        pendingTasks.splice(index, 1);
+      // 从队列中移除该客户端的活动任务，但保留数据库中的WAITING任务
+      // 只从当前处理队列中移除该socket的任务
+      const pendingTasksToRemove = pendingTasks.filter(task => task.socketId === socket.id);
+      
+      if (pendingTasksToRemove.length > 0) {
+        console.log(`移除断开连接客户端的 ${pendingTasksToRemove.length} 个待处理任务`);
+        // 从队列中移除
+        pendingTasks.splice(0, pendingTasks.length, ...pendingTasks.filter(task => task.socketId !== socket.id));
       }
+      
+      // 不在这里清空该客户端的等待任务，以便前端重新连接时可以继续处理
     });
 
     // 修改 taskCompleted 事件处理

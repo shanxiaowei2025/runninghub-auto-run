@@ -19,6 +19,7 @@ export const socketEvents = {
   workflowStatusUpdate: 'workflowStatusUpdate',
   taskCompleted: 'taskCompleted',
   taskDeleted: 'taskDeleted',
+  taskRecoveryUpdate: 'taskRecoveryUpdate',
 };
 
 // 创建工作流
@@ -91,6 +92,20 @@ export const onTaskDeleted = (callback: (data: TaskDeletedResponse) => void): vo
   socket.on(socketEvents.taskDeleted, callback);
 };
 
+// 监听任务恢复更新事件
+export interface TaskRecoveryUpdate {
+  clientId: string;
+  createdAt: string;
+  originalCreatedAt: string;
+  taskId: string | null;
+  status: string;
+  message?: string;
+}
+
+export const onTaskRecoveryUpdate = (callback: (data: TaskRecoveryUpdate) => void): void => {
+  socket.on(socketEvents.taskRecoveryUpdate, callback);
+};
+
 // 清除所有事件监听
 export const clearAllListeners = (): void => {
   socket.off(socketEvents.connect);
@@ -100,5 +115,6 @@ export const clearAllListeners = (): void => {
   socket.off(socketEvents.workflowStatusUpdate);
   socket.off(socketEvents.taskCompleted);
   socket.off(socketEvents.taskDeleted);
+  socket.off(socketEvents.taskRecoveryUpdate);
   socket.off('clientTasks');
 }; 

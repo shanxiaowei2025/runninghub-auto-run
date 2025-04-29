@@ -14,7 +14,10 @@ import {
   notifyDeleteTask,
   requestClientTasks,
   onClientTasks,
-  WorkflowStatusUpdate
+  onConnect,
+  onTaskRecoveryUpdate,
+  WorkflowStatusUpdate,
+  TaskRecoveryUpdate
 } from './services/socket'
 import { 
   pollingEvents, 
@@ -43,6 +46,26 @@ function App() {
     initClientId();
   }, [initClientId]);
 
+  // 监听Socket连接恢复事件
+  useEffect(() => {
+    const handleSocketConnect = () => {
+      console.log('Socket连接已恢复，clientId:', clientId);
+      if (clientId) {
+        console.log('重新请求客户端任务列表');
+        // 连接恢复后，请求加载任务列表，服务端会自动将WAITING任务重新加入队列
+        requestClientTasks(clientId);
+      }
+    };
+
+    // 注册socket连接事件
+    onConnect(handleSocketConnect);
+
+    return () => {
+      // 移除事件监听
+      socket.off(socketEvents.connect, handleSocketConnect);
+    };
+  }, [clientId]);
+
   // 当客户端ID初始化完成后，请求加载任务列表
   useEffect(() => {
     if (initialized && clientId) {
@@ -68,7 +91,7 @@ function App() {
             task.status !== TaskStatus.WAITING) {
           console.log(`自动开始轮询任务 ${task.taskId}`);
           startPolling(apiKey, task.taskId);
-          setPollingTasks(prev => ({ ...prev, [task.taskId]: true }));
+          setPollingTasks(prev => ({ ...prev, [task.taskId as string]: true }));
         }
       }
     }
@@ -121,7 +144,7 @@ function App() {
       });
       
       // 任务完成，更新轮询状态
-      setPollingTasks(prev => ({ ...prev, [taskId]: false }));
+      setPollingTasks(prev => ({ ...prev, [taskId as string]: false }));
       messageApi.success(`轮询到任务 ${taskId} 已完成`);
     };
     
@@ -146,7 +169,7 @@ function App() {
       });
       
       // 任务失败，更新轮询状态
-      setPollingTasks(prev => ({ ...prev, [taskId]: false }));
+      setPollingTasks(prev => ({ ...prev, [taskId as string]: false }));
       messageApi.error(`轮询任务 ${taskId} 失败: ${error}`);
     };
     
@@ -186,7 +209,7 @@ function App() {
                 task.status !== TaskStatus.FAILED) {
               console.log(`自动开始轮询任务 ${task.taskId}`);
               startPolling(apiKey, task.taskId);
-              setPollingTasks(prev => ({ ...prev, [task.taskId]: true }));
+              setPollingTasks(prev => ({ ...prev, [task.taskId as string]: true }));
             }
           });
           
@@ -219,10 +242,25 @@ function App() {
     const handleWorkflowStatusUpdate = (data: WorkflowStatusUpdate) => {
       console.log('收到任务状态更新:', data);
       
+      // 被恢复的任务应该根据clientId和createdAt来匹配
+      const isRecoveredTask = 'recovered' in data && data.recovered === true;
+      
       setTasks(prevTasks => {
         return prevTasks.map(task => {
-          // 根据原始创建时间匹配任务
-          if (task.createdAt === data.originalCreatedAt) {
+          // 如果是恢复的任务，需要匹配clientId和createdAt
+          if (isRecoveredTask && 'clientId' in data) {
+            if (task.clientId === data.clientId && task.createdAt === data.originalCreatedAt) {
+              // 更新恢复任务的状态
+              return {
+                ...task,
+                taskId: data.taskId,
+                status: data.status,
+                createdAt: task.createdAt // 保留原始创建时间
+              };
+            }
+          } 
+          // 常规根据原始创建时间匹配任务
+          else if (task.createdAt === data.originalCreatedAt) {
             // 更新任务状态和ID，保留nodeInfoList和其他属性
             return {
               ...task,
@@ -241,19 +279,52 @@ function App() {
           data.status !== 'WAITING' && 
           data.status !== TaskStatus.WAITING) {
         startPolling(apiKey, data.taskId);
-        setPollingTasks(prev => ({ ...prev, [data.taskId]: true }));
+        setPollingTasks(prev => ({ ...prev, [data.taskId as string]: true }));
         messageApi.success('等待中的任务已开始执行！');
+      }
+    };
+    
+    // 处理任务恢复更新事件
+    const handleTaskRecoveryUpdate = (data: TaskRecoveryUpdate) => {
+      console.log('收到任务恢复通知:', data);
+      
+      // 验证clientId是否匹配，只处理当前客户端的任务
+      if (data.clientId !== clientId) {
+        return;
+      }
+      
+      // 更新任务状态
+      setTasks(prevTasks => {
+        return prevTasks.map(task => {
+          // 根据创建时间匹配任务
+          if (task.createdAt === data.createdAt) {
+            return {
+              ...task,
+              status: data.status,
+              // 可能的其他更新
+              ...(data.taskId ? { taskId: data.taskId } : {})
+            };
+          }
+          return task;
+        });
+      });
+      
+      // 显示通知消息
+      if (data.message) {
+        messageApi.info(data.message);
       }
     };
 
     // 添加事件监听
     onWorkflowStatusUpdate(handleWorkflowStatusUpdate);
+    onTaskRecoveryUpdate(handleTaskRecoveryUpdate);
     
     // 清理函数
     return () => {
       socket.off(socketEvents.workflowStatusUpdate, handleWorkflowStatusUpdate);
+      socket.off(socketEvents.taskRecoveryUpdate, handleTaskRecoveryUpdate);
     };
-  }, [apiKey]);
+  }, [apiKey, clientId, messageApi]);
 
   // 处理表单提交
   const handleFormSubmit = () => {
@@ -267,7 +338,7 @@ function App() {
   
   // 处理轮询状态变化
   const handlePollingStatusChange = (taskId: string, isPolling: boolean) => {
-    setPollingTasks(prev => ({ ...prev, [taskId]: isPolling }));
+    setPollingTasks(prev => ({ ...prev, [taskId as string]: isPolling }));
   };
 
   // 修改删除任务的处理函数
@@ -311,7 +382,7 @@ function App() {
             true // isWaiting
           );
         } 
-        // QUEUED或PENDING状态的任务需要调用API取消任务执行
+        // QUEUED或RUNNING状态的任务需要调用API取消任务执行
         else if ((status === 'QUEUED' || status === TaskStatus.QUEUED || 
                  status === 'RUNNING' || status === TaskStatus.RUNNING) && 
                  taskId) {
@@ -320,6 +391,13 @@ function App() {
             .then(success => {
               if (success) {
                 messageApi.success(`已成功取消任务 ${taskId}`);
+                // 取消成功后也从数据库中删除
+                notifyDeleteTask(
+                  taskIdOrUniqueId,  // uniqueId
+                  taskId, // taskId
+                  taskToDelete.createdAt, // createdAt
+                  false // isWaiting
+                );
               } else {
                 messageApi.error(`取消任务 ${taskId} 失败`);
               }
@@ -327,6 +405,18 @@ function App() {
             .catch(error => {
               messageApi.error(`取消任务出错: ${error.message}`);
             });
+        }
+        // SUCCESS或FAILED状态的任务也需要从数据库中删除
+        else if ((status === 'SUCCESS' || status === TaskStatus.SUCCESS || 
+                 status === 'FAILED' || status === TaskStatus.FAILED) && 
+                 taskId) {
+          // 通知服务器从数据库中删除任务
+          notifyDeleteTask(
+            taskIdOrUniqueId,  // uniqueId
+            taskId, // taskId
+            taskToDelete.createdAt, // createdAt
+            false // isWaiting
+          );
         }
       }
       
@@ -380,7 +470,7 @@ function App() {
                     apiKey={apiKey} 
                     loadingTasks={pollingTasks}
                     onPollingStatusChange={handlePollingStatusChange}
-                    onDeleteTask={(taskIdOrUniqueId, isUniqueId, task) => handleDeleteTask(taskIdOrUniqueId, isUniqueId)}
+                    onDeleteTask={(taskIdOrUniqueId, isUniqueId) => handleDeleteTask(taskIdOrUniqueId, isUniqueId)}
                   />
                 </Card>
               </Col>
