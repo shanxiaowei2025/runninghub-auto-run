@@ -4,7 +4,6 @@ import { Form, Input, Button, Card, Typography, Row, Col, Divider, message, Inpu
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useWorkflowFormStore } from '../stores/workflowFormStore';
 import { useClientStore } from '../stores/clientStore';
-import { NodeInfo } from '../types';
 
 const { Title, Text } = Typography;
 
@@ -124,33 +123,40 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     setIsSubmitting(true);
     
     try {
-      const nodeInfoList: NodeInfo[] = [];
+      let totalTasksCreated = 0;
       
       // 处理任务组
       taskGroups.forEach((group) => {
+        // 验证当前任务组，过滤掉不完整的nodeInfo
+        const validNodeInfoList = group.nodeInfoList.filter(
+          node => node.nodeId && node.fieldName && node.fieldValue !== ''
+        );
+        
         // 每个任务组执行多次
         for (let i = 0; i < group.executionCount; i++) {
-          // 添加组中的所有节点
-          group.nodeInfoList.forEach((nodeInfo) => {
-            nodeInfoList.push({
+          // 构建请求对象
+          const requestData = {
+            apiKey: formData.apiKey,
+            workflowId: formData.workflowId,
+            nodeInfoList: validNodeInfoList.map(nodeInfo => ({
               ...nodeInfo,
               // 如果有多次执行，且jsonFile存在，则生成不同的jsonFile路径
               jsonFile: nodeInfo.jsonFile && group.executionCount > 1 
                 ? `${nodeInfo.jsonFile.replace('.json', '')}_${i + 1}.json`
                 : nodeInfo.jsonFile
-            });
-          });
+            })),
+            clientId: clientId || undefined,
+            _timestamp: new Date().toISOString(),
+          };
+          
+          // 调用 createWorkflow 接口
+          createWorkflow(requestData);
+          totalTasksCreated++;
         }
       });
       
-      // 调用 createWorkflow 接口
-      createWorkflow({
-        apiKey: formData.apiKey,
-        workflowId: formData.workflowId,
-        nodeInfoList,
-        clientId: clientId || undefined,
-        _timestamp: new Date().toISOString(),
-      });
+      // 显示成功消息
+      message.success(`已成功创建 ${totalTasksCreated} 个工作流任务`);
       
       // 执行回调
       if (onSubmit) {
