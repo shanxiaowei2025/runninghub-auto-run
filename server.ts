@@ -1233,13 +1233,32 @@ async function createServer() {
           WHERE ${columnMap.taskId || 'taskId'} = ?
         `);
         
-        const result = data.result ? JSON.stringify(data.result) : null;
-        updateStmt.run(
-          'SUCCESS',
-          new Date().toISOString(),
-          result,
-          data.taskId
-        );
+        // 处理任务结果
+        let resultJson = null;
+        if (data.result) {
+          try {
+            // 如果已经是字符串，直接使用，否则转换为JSON字符串
+            resultJson = typeof data.result === 'string' 
+              ? data.result 
+              : JSON.stringify(data.result);
+            console.log(`保存任务 ${data.taskId} 的结果到数据库`);
+          } catch (jsonError) {
+            console.error('任务结果JSON序列化失败:', jsonError);
+          }
+        }
+        
+        // 执行更新
+        try {
+          updateStmt.run(
+            'SUCCESS',
+            new Date().toISOString(),
+            resultJson,
+            data.taskId
+          );
+          console.log(`成功更新任务 ${data.taskId} 的状态和结果`);
+        } catch (dbError) {
+          console.error(`更新任务 ${data.taskId} 失败:`, dbError);
+        }
       }
       
       // 减少正在处理的任务计数

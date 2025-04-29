@@ -61,8 +61,8 @@ export const onWorkflowStatusUpdate = (callback: (data: WorkflowStatusUpdate) =>
 };
 
 // 添加任务完成通知函数
-export const notifyTaskCompleted = (taskId: string): void => {
-  socket.emit(socketEvents.taskCompleted, { taskId });
+export const notifyTaskCompleted = (taskId: string, result?: Record<string, unknown>): void => {
+  socket.emit(socketEvents.taskCompleted, { taskId, result });
 };
 
 // 通知服务器删除任务

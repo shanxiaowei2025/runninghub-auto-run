@@ -151,14 +151,23 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
             status,
             outputs: outputsResponse.data,
           });
+          
+          // 任务成功完成，停止轮询并通知服务器，带上结果
+          stopPolling(taskId);
+          // 添加socket连接状态检查
+          if (socket.connected) {
+            notifyTaskCompleted(taskId, { data: outputsResponse.data });
+          } else {
+            console.warn('Socket断开连接，无法发送任务完成通知');
+          }
+          return; // 提前返回，避免重复调用
         }
       } catch (outputError) {
         console.error('获取任务输出失败:', outputError);
       }
       
-      // 任务成功完成，停止轮询并通知服务器
+      // 如果获取输出失败或没有输出，仍然标记任务完成
       stopPolling(taskId);
-      // 添加socket连接状态检查
       if (socket.connected) {
         notifyTaskCompleted(taskId);
       } else {
@@ -174,7 +183,7 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
       stopPolling(taskId);
       // 添加socket连接状态检查
       if (socket.connected) {
-        notifyTaskCompleted(taskId);
+        notifyTaskCompleted(taskId, { error: '任务执行失败' });
       } else {
         console.warn('Socket断开连接，无法发送任务完成通知');
       }
@@ -190,7 +199,7 @@ const pollTaskStatus = async (apiKey: string, taskId: string) => {
     stopPolling(taskId);
     // 添加socket连接状态检查
     if (socket.connected) {
-      notifyTaskCompleted(taskId);
+      notifyTaskCompleted(taskId, { error: error instanceof Error ? error.message : '轮询任务状态失败' });
     } else {
       console.warn('Socket断开连接，无法发送任务完成通知');
     }
