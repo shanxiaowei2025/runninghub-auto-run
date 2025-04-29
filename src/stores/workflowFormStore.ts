@@ -3,9 +3,18 @@ import { persist, createJSONStorage } from 'zustand/middleware'
 import { get, set, del } from 'idb-keyval'
 import { NodeInfo } from '../types'
 
-// 自定义IndexedDB存储实现
-const indexedDBStorage = {
+// 检查是否在浏览器环境
+const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined'
+
+// 自定义存储实现
+const storage = {
   getItem: async (name: string): Promise<string | null> => {
+    // 在服务器端提供一个空实现
+    if (!isBrowser) {
+      console.log(`[Storage] 服务器端不支持IndexedDB: ${name}`)
+      return null
+    }
+    
     console.log(`[IndexedDB] 读取数据: ${name}`)
     try {
       const value = await get(name)
@@ -16,6 +25,12 @@ const indexedDBStorage = {
     }
   },
   setItem: async (name: string, value: string): Promise<void> => {
+    // 在服务器端不执行任何操作
+    if (!isBrowser) {
+      console.log(`[Storage] 服务器端不支持IndexedDB: ${name}`)
+      return
+    }
+    
     console.log(`[IndexedDB] 保存数据: ${name}`)
     try {
       const parsedValue = JSON.parse(value)
@@ -25,6 +40,12 @@ const indexedDBStorage = {
     }
   },
   removeItem: async (name: string): Promise<void> => {
+    // 在服务器端不执行任何操作
+    if (!isBrowser) {
+      console.log(`[Storage] 服务器端不支持IndexedDB: ${name}`)
+      return
+    }
+    
     console.log(`[IndexedDB] 删除数据: ${name}`)
     try {
       await del(name)
@@ -67,7 +88,7 @@ const initialFormData: WorkflowFormData = {
   apiKey: '',
   workflowId: '',
   taskGroups: [{ 
-    nodeInfoList: [{ nodeId: '', fieldName: '', fieldValue: '' }],
+    nodeInfoList: [],  // 初始状态为空节点列表
     executionCount: 1
   }]
 }
@@ -94,7 +115,7 @@ export const useWorkflowFormStore = create<WorkflowFormStore>()(
         const newTaskGroups = [
           ...state.formData.taskGroups, 
           { 
-            nodeInfoList: [{ nodeId: '', fieldName: '', fieldValue: '' }],
+            nodeInfoList: [],  // 初始创建空的节点列表
             executionCount: 1
           }
         ];
@@ -130,9 +151,7 @@ export const useWorkflowFormStore = create<WorkflowFormStore>()(
       
       removeNodeInfo: (groupIndex: number, nodeIndex: number) => set(state => {
         const newTaskGroups = [...state.formData.taskGroups];
-        if (newTaskGroups[groupIndex].nodeInfoList.length > 1) {
-          newTaskGroups[groupIndex].nodeInfoList.splice(nodeIndex, 1);
-        }
+        newTaskGroups[groupIndex].nodeInfoList.splice(nodeIndex, 1);
         return { formData: { ...state.formData, taskGroups: newTaskGroups } };
       }),
       
@@ -149,7 +168,7 @@ export const useWorkflowFormStore = create<WorkflowFormStore>()(
     }),
     {
       name: 'workflow-form-storage', // 存储在IndexedDB中的键名
-      storage: createJSONStorage(() => indexedDBStorage),
+      storage: createJSONStorage(() => storage),
       partialize: (state) => ({ formData: state.formData }), // 只存储formData部分
     }
   )

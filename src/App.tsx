@@ -11,7 +11,10 @@ import {
   clearAllListeners,
   socket,
   socketEvents,
-  notifyDeleteTask
+  notifyDeleteTask,
+  requestClientTasks,
+  onClientTasks,
+  WorkflowStatusUpdate
 } from './services/socket'
 import { 
   pollingEvents, 
@@ -19,12 +22,12 @@ import {
   clearAllPollingListeners,
   startPolling 
 } from './services/taskPolling'
-import { Layout, Typography, Row, Col, Card, message, ConfigProvider, theme, Tabs } from 'antd'
+import { Layout, Typography, Row, Col, Card, message, ConfigProvider, theme } from 'antd'
 import { cancelTask } from './services/taskService'
+import { useClientStore } from './stores/clientStore'
 
 const { Header, Content, Footer } = Layout
 const { Title } = Typography
-const { TabPane } = Tabs
 
 function App() {
   const [tasks, setTasks] = useState<WorkflowTask[]>([])
@@ -32,6 +35,21 @@ function App() {
   const [apiKey, setApiKey] = useState<string>('');
   // 跟踪正在轮询的任务列表
   const [pollingTasks, setPollingTasks] = useState<Record<string, boolean>>({});
+  // 获取客户端ID
+  const { clientId, init: initClientId, initialized } = useClientStore();
+
+  // 初始化客户端ID
+  useEffect(() => {
+    initClientId();
+  }, [initClientId]);
+
+  // 当客户端ID初始化完成后，请求加载任务列表
+  useEffect(() => {
+    if (initialized && clientId) {
+      console.log('客户端ID初始化完成，请求任务列表:', clientId);
+      requestClientTasks(clientId);
+    }
+  }, [initialized, clientId]);
 
   useEffect(() => {
     // 当工作流创建成功时
@@ -131,10 +149,57 @@ function App() {
       setPollingTasks(prev => ({ ...prev, [taskId]: false }));
       messageApi.error(`轮询任务 ${taskId} 失败: ${error}`);
     };
+    
+    // 处理客户端任务列表
+    const handleClientTasks = (data: { clientId: string, tasks: WorkflowTask[], error?: string }) => {
+      console.log('收到客户端任务列表:', data);
+      
+      if (data.error) {
+        messageApi.error(`获取任务列表失败: ${data.error}`);
+        return;
+      }
+      
+      if (data.tasks && Array.isArray(data.tasks)) {
+        // 更新任务列表 - 保留现有内存中的任务，添加新的任务
+        setTasks(prevTasks => {
+          // 找出所有已有的任务ID
+          const existingTaskIds = new Set(prevTasks.map(t => t.taskId));
+          
+          // 过滤出不在现有列表中的任务
+          const newTasks = data.tasks.filter(task => {
+            // 对于没有taskId的任务(WAITING状态)，使用createdAt作为唯一标识
+            if (!task.taskId) {
+              return !prevTasks.some(t => t.createdAt === task.createdAt);
+            }
+            // 对于有taskId的任务，检查是否已存在
+            return !existingTaskIds.has(task.taskId);
+          });
+          
+          // 对于正在运行的任务，开始轮询
+          newTasks.forEach(task => {
+            if (apiKey && task.taskId && 
+                task.status !== 'WAITING' && 
+                task.status !== TaskStatus.WAITING && 
+                task.status !== 'SUCCESS' && 
+                task.status !== TaskStatus.SUCCESS && 
+                task.status !== 'FAILED' && 
+                task.status !== TaskStatus.FAILED) {
+              console.log(`自动开始轮询任务 ${task.taskId}`);
+              startPolling(apiKey, task.taskId);
+              setPollingTasks(prev => ({ ...prev, [task.taskId]: true }));
+            }
+          });
+          
+          // 合并任务列表，新的任务添加到列表前面
+          return [...newTasks, ...prevTasks];
+        });
+      }
+    };
 
     // 注册事件监听
     onWorkflowCreated(handleWorkflowCreated);
     onWorkflowError(handleWorkflowError);
+    onClientTasks(handleClientTasks);
     
     // 注册轮询事件监听
     onPollingEvent(pollingEvents.taskStatusUpdate, handleTaskStatusUpdate);
@@ -151,7 +216,7 @@ function App() {
   // 在App.tsx中修改socket事件监听
   useEffect(() => {
     // 当工作流状态更新时（针对WAITING转为其他状态）
-    const handleWorkflowStatusUpdate = (data: any) => {
+    const handleWorkflowStatusUpdate = (data: WorkflowStatusUpdate) => {
       console.log('收到任务状态更新:', data);
       
       setTasks(prevTasks => {

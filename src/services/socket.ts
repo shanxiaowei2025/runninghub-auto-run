@@ -22,7 +22,7 @@ export const socketEvents = {
 };
 
 // 创建工作流
-export const createWorkflow = (data: CreateWorkflowRequest): void => {
+export const createWorkflow = (data: CreateWorkflowRequest & { clientId?: string }): void => {
   socket.emit('createWorkflow', data);
 };
 
@@ -47,7 +47,15 @@ export const onWorkflowError = (callback: (error: { error: string }) => void): v
 };
 
 // 监听工作流状态更新事件
-export const onWorkflowStatusUpdate = (callback: (data: any) => void): void => {
+export interface WorkflowStatusUpdate {
+  originalCreatedAt: string;
+  taskId: string | null;
+  status: string;
+  createdAt: string;
+  error?: string;
+}
+
+export const onWorkflowStatusUpdate = (callback: (data: WorkflowStatusUpdate) => void): void => {
   socket.on(socketEvents.workflowStatusUpdate, callback);
 };
 
@@ -61,8 +69,25 @@ export const notifyDeleteTask = (uniqueId: string, taskId: string | null, create
   socket.emit('deleteTask', { uniqueId, taskId, createdAt, isWaiting });
 };
 
+// 请求获取客户端任务
+export const requestClientTasks = (clientId: string): void => {
+  socket.emit('getClientTasks', { clientId });
+};
+
+// 监听客户端任务响应
+export const onClientTasks = (callback: (data: { clientId: string, tasks: WorkflowTask[], error?: string }) => void): void => {
+  socket.on('clientTasks', callback);
+};
+
 // 添加删除任务成功事件监听
-export const onTaskDeleted = (callback: (data: any) => void): void => {
+export interface TaskDeletedResponse {
+  taskId?: string;
+  uniqueId?: string; 
+  success: boolean;
+  error?: string;
+}
+
+export const onTaskDeleted = (callback: (data: TaskDeletedResponse) => void): void => {
   socket.on(socketEvents.taskDeleted, callback);
 };
 
@@ -75,4 +100,5 @@ export const clearAllListeners = (): void => {
   socket.off(socketEvents.workflowStatusUpdate);
   socket.off(socketEvents.taskCompleted);
   socket.off(socketEvents.taskDeleted);
+  socket.off('clientTasks');
 }; 

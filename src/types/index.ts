@@ -3,6 +3,7 @@ export interface NodeInfo {
   nodeId: string;
   fieldName: string;
   fieldValue: string | number | boolean;
+  jsonFile?: string;
 }
 
 export interface CreateWorkflowRequest {
@@ -10,6 +11,7 @@ export interface CreateWorkflowRequest {
   workflowId: string;
   nodeInfoList: NodeInfo[];
   addMetadata?: boolean;
+  _timestamp?: string;
 }
 
 export interface TaskCreateResponse {
@@ -30,7 +32,7 @@ export enum TaskStatus {
 }
 
 export interface WorkflowTask {
-  taskId: string;
+  taskId: string | null;
   clientId: string;
   status: TaskStatus | string;
   result?: Record<string, unknown>;

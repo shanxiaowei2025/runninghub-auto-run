@@ -3,6 +3,8 @@ import { createWorkflow } from '../services/socket';
 import { Form, Input, Button, Card, Typography, Row, Col, Divider, message, InputNumber } from 'antd';
 import { PlusOutlined, DeleteOutlined } from '@ant-design/icons';
 import { useWorkflowFormStore } from '../stores/workflowFormStore';
+import { useClientStore } from '../stores/clientStore';
+import { NodeInfo } from '../types';
 
 const { Title, Text } = Typography;
 
@@ -17,7 +19,7 @@ interface FormValues {
 }
 
 export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormProps) {
-  const [form] = Form.useForm();
+  const [form] = Form.useForm<FormValues>();
   // 使用 Zustand store 中的状态和方法
   const { 
     formData,
@@ -33,7 +35,10 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
   
   const taskGroups = formData.taskGroups;
   const [isSubmitting, setIsSubmitting] = useState(false);
-
+  
+  // 获取客户端ID
+  const { clientId } = useClientStore();
+  
   // 初始化表单数据
   useEffect(() => {
     form.setFieldsValue({
@@ -64,11 +69,7 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
       node => node.nodeId && node.fieldName && node.fieldValue !== ''
     );
     
-    if (validNodeInfoList.length === 0) {
-      message.error('请至少添加一个有效的节点信息');
-      return;
-    }
-    
+    // 允许空的 nodeInfoList
     setIsSubmitting(true);
     
     // 保存API Key和workflowId到store
@@ -87,7 +88,9 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
       const requestData = {
         apiKey,
         workflowId,
-        nodeInfoList: validNodeInfoList
+        nodeInfoList: validNodeInfoList,
+        clientId: clientId || undefined,
+        _timestamp: new Date().toISOString()
       };
       
       // 使用Socket.io发送数据
@@ -107,70 +110,67 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
   };
 
   // 提交表单
-  const handleSubmit = (values: FormValues) => {
-    const { apiKey, workflowId } = values;
+  const handleSubmit = () => {
+    if (!formData.apiKey) {
+      message.error('API Key 不能为空');
+      return;
+    }
     
-    // 验证每个任务组，过滤掉不完整的nodeInfo
-    const validTaskGroups = taskGroups.map(group => {
-      return {
-        ...group,
-        nodeInfoList: group.nodeInfoList.filter(
-          node => node.nodeId && node.fieldName && node.fieldValue !== ''
-        )
-      };
-    }).filter(group => group.executionCount > 0 && group.nodeInfoList.length > 0);
-    
-    if (validTaskGroups.length === 0) {
-      message.error('请至少添加一个有效的任务组');
+    if (!formData.workflowId) {
+      message.error('工作流ID不能为空');
       return;
     }
     
     setIsSubmitting(true);
     
-    // 保存API Key和workflowId到store
-    setApiKey(apiKey);
-    setWorkflowId(workflowId);
-    
-    // 通知父组件API Key已更改
-    if (onApiKeyChange) {
-      onApiKeyChange(apiKey);
-    }
-    
-    // 遍历任务组并创建工作流
-    let totalTasksCount = 0;
-    validTaskGroups.forEach(group => {
-      // 根据执行次数创建多个相同的工作流
-      for (let i = 0; i < group.executionCount; i++) {
-        // 构建请求对象
-        const requestData = {
-          apiKey,
-          workflowId,
-          nodeInfoList: group.nodeInfoList.length > 0 ? group.nodeInfoList : []
-        };
-        
-        // 使用Socket.io发送数据
-        createWorkflow(requestData);
-        totalTasksCount++;
+    try {
+      const nodeInfoList: NodeInfo[] = [];
+      
+      // 处理任务组
+      taskGroups.forEach((group) => {
+        // 每个任务组执行多次
+        for (let i = 0; i < group.executionCount; i++) {
+          // 添加组中的所有节点
+          group.nodeInfoList.forEach((nodeInfo) => {
+            nodeInfoList.push({
+              ...nodeInfo,
+              // 如果有多次执行，且jsonFile存在，则生成不同的jsonFile路径
+              jsonFile: nodeInfo.jsonFile && group.executionCount > 1 
+                ? `${nodeInfo.jsonFile.replace('.json', '')}_${i + 1}.json`
+                : nodeInfo.jsonFile
+            });
+          });
+        }
+      });
+      
+      // 调用 createWorkflow 接口
+      createWorkflow({
+        apiKey: formData.apiKey,
+        workflowId: formData.workflowId,
+        nodeInfoList,
+        clientId: clientId || undefined,
+        _timestamp: new Date().toISOString(),
+      });
+      
+      // 执行回调
+      if (onSubmit) {
+        onSubmit();
       }
-    });
-    
-    message.success(`已创建 ${totalTasksCount} 个工作流任务`);
-    
-    // 调用回调函数
-    onSubmit();
-    
-    // 重置表单状态
-    setTimeout(() => {
+    } catch (error) {
+      console.error('创建工作流时出错:', error);
+      message.error('创建工作流时出错');
+    } finally {
       setIsSubmitting(false);
-    }, 2000);
+    }
   };
 
   // 监听API Key变化
   const handleApiKeyChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setApiKey(e.target.value);
+    const value = e.target.value;
+    setApiKey(value);
     
     if (onApiKeyChange) {
-      onApiKeyChange(e.target.value);
+      onApiKeyChange(value);
     }
   };
 
@@ -267,68 +267,72 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
               <Text>节点信息</Text>
             </Divider>
             
-            {taskGroup.nodeInfoList.map((nodeInfo, nodeIndex) => (
-              <Card 
-                key={nodeIndex} 
-                size="small" 
-                className="mb-4"
-                headStyle={{ padding: 0, margin: 0 }}
-                title={
-                  <div style={nodeCardTitleStyle} className="flex justify-between items-center">
-                    <span>节点 #{nodeIndex + 1}</span>
-                    {taskGroup.nodeInfoList.length > 1 && (
+            {taskGroup.nodeInfoList.length === 0 ? (
+              <div className="text-center py-4">
+                <Text type="secondary">当前没有节点信息</Text>
+              </div>
+            ) : (
+              taskGroup.nodeInfoList.map((nodeInfo, nodeIndex) => (
+                <Card 
+                  key={nodeIndex} 
+                  size="small" 
+                  className="mb-4"
+                  headStyle={{ padding: 0, margin: 0 }}
+                  title={
+                    <div style={nodeCardTitleStyle} className="flex justify-between items-center">
+                      <span>节点 #{nodeIndex + 1}</span>
                       <Button 
                         danger 
                         icon={<DeleteOutlined />} 
                         size="small"
                         onClick={() => removeNodeInfo(groupIndex, nodeIndex)}
                       />
-                    )}
-                  </div>
-                }
-              >
-                <Row gutter={[16, 16]}>
-                  <Col span={12}>
-                    <Form.Item
-                      label="节点ID"
-                      rules={[{ required: true, message: '请输入节点ID' }]}
-                    >
-                      <Input
-                        placeholder="节点ID"
-                        value={nodeInfo.nodeId}
-                        onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'nodeId', e.target.value)}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={12}>
-                    <Form.Item
-                      label="字段名称"
-                      rules={[{ required: true, message: '请输入字段名称' }]}
-                    >
-                      <Input
-                        placeholder="字段名称"
-                        value={nodeInfo.fieldName}
-                        onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'fieldName', e.target.value)}
-                      />
-                    </Form.Item>
-                  </Col>
-                  <Col span={24}>
-                    <Form.Item
-                      label="字段值"
-                      rules={[{ required: true, message: '请输入字段值' }]}
-                    >
-                      <Input.TextArea
-                        placeholder="字段值"
-                        value={nodeInfo.fieldValue as string}
-                        onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'fieldValue', e.target.value)}
-                        autoSize={{ minRows: 1, maxRows: 6 }}
-                        style={{ resize: 'vertical' }}
-                      />
-                    </Form.Item>
-                  </Col>
-                </Row>
-              </Card>
-            ))}
+                    </div>
+                  }
+                >
+                  <Row gutter={[16, 16]}>
+                    <Col span={12}>
+                      <Form.Item
+                        label="节点ID"
+                        rules={[{ required: true, message: '请输入节点ID' }]}
+                      >
+                        <Input
+                          placeholder="节点ID"
+                          value={nodeInfo.nodeId}
+                          onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'nodeId', e.target.value)}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item
+                        label="字段名称"
+                        rules={[{ required: true, message: '请输入字段名称' }]}
+                      >
+                        <Input
+                          placeholder="字段名称"
+                          value={nodeInfo.fieldName}
+                          onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'fieldName', e.target.value)}
+                        />
+                      </Form.Item>
+                    </Col>
+                    <Col span={24}>
+                      <Form.Item
+                        label="字段值"
+                        rules={[{ required: true, message: '请输入字段值' }]}
+                      >
+                        <Input.TextArea
+                          placeholder="字段值"
+                          value={nodeInfo.fieldValue as string}
+                          onChange={(e) => updateNodeInfo(groupIndex, nodeIndex, 'fieldValue', e.target.value)}
+                          autoSize={{ minRows: 1, maxRows: 6 }}
+                          style={{ resize: 'vertical' }}
+                        />
+                      </Form.Item>
+                    </Col>
+                  </Row>
+                </Card>
+              ))
+            )}
             
             <Divider dashed={true}>
               <Button 
