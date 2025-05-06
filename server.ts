@@ -538,7 +538,15 @@ function getClientTasks(clientId: string): Task[] {
         ${columnMap.uniqueId || 'uniqueId'}
       FROM tasks 
       WHERE ${columnMap.clientId || 'clientId'} = ?
-      ORDER BY ${columnMap.createdAt || 'createdAt'} DESC
+      ORDER BY 
+        CASE 
+          WHEN ${columnMap.status || 'status'} IN ('SUCCESS', 'FAILED') THEN 1
+          ELSE 0
+        END ASC,
+        CASE 
+          WHEN ${columnMap.completedAt || 'completedAt'} IS NULL THEN ${columnMap.createdAt || 'createdAt'}
+          ELSE ${columnMap.completedAt || 'completedAt'}
+        END DESC
     `);
     
     const tasks = tasksStmt.all(clientId) as Record<string, unknown>[];

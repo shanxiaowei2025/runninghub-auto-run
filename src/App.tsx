@@ -79,7 +79,13 @@ function App() {
   useEffect(() => {
     // 当工作流创建成功时
     const handleWorkflowCreated = (task: WorkflowTask) => {
+      // 将新任务添加到任务列表，并且在新任务创建后重新请求完整的任务列表
       setTasks(prevTasks => [task, ...prevTasks]);
+      
+      // 如果有clientId，请求更新任务列表以保持正确排序
+      if (clientId) {
+        requestClientTasks(clientId);
+      }
       
       // 根据任务状态显示不同的消息
       if (task.status === 'WAITING' || task.status === TaskStatus.WAITING) {
@@ -166,6 +172,11 @@ function App() {
       
       // 任务完成后，尝试处理等待队列中的任务
       onTaskCompleted();
+      
+      // 请求完整任务列表以保持正确排序
+      if (clientId) {
+        requestClientTasks(clientId);
+      }
     };
     
     // 处理轮询任务错误
@@ -194,6 +205,11 @@ function App() {
       
       // 任务完成后（即使是失败），尝试处理等待队列中的任务
       onTaskCompleted();
+      
+      // 请求完整任务列表以保持正确排序
+      if (clientId) {
+        requestClientTasks(clientId);
+      }
     };
     
     // 处理客户端任务列表
@@ -206,38 +222,22 @@ function App() {
       }
       
       if (data.tasks && Array.isArray(data.tasks)) {
-        // 更新任务列表 - 保留现有内存中的任务，添加新的任务
-        setTasks(prevTasks => {
-          // 找出所有已有的任务ID
-          const existingTaskIds = new Set(prevTasks.map(t => t.taskId));
-          
-          // 过滤出不在现有列表中的任务
-          const newTasks = data.tasks.filter(task => {
-            // 对于没有taskId的任务(WAITING状态)，使用createdAt作为唯一标识
-            if (!task.taskId) {
-              return !prevTasks.some(t => t.createdAt === task.createdAt);
-            }
-            // 对于有taskId的任务，检查是否已存在
-            return !existingTaskIds.has(task.taskId);
-          });
-          
-          // 对于正在运行的任务，开始轮询
-          newTasks.forEach(task => {
-            if (apiKey && task.taskId && 
-                task.status !== 'WAITING' && 
-                task.status !== TaskStatus.WAITING && 
-                task.status !== 'SUCCESS' && 
-                task.status !== TaskStatus.SUCCESS && 
-                task.status !== 'FAILED' && 
-                task.status !== TaskStatus.FAILED) {
-              console.log(`自动开始轮询任务 ${task.taskId}`);
-              startPolling(apiKey, task.taskId);
-              setPollingTasks(prev => ({ ...prev, [task.taskId as string]: true }));
-            }
-          });
-          
-          // 合并任务列表，新的任务添加到列表前面
-          return [...newTasks, ...prevTasks];
+        // 直接使用服务器返回的已排序任务列表，不再手动合并
+        setTasks(data.tasks);
+        
+        // 对于正在运行的任务，开始轮询
+        data.tasks.forEach(task => {
+          if (apiKey && task.taskId && 
+              task.status !== 'WAITING' && 
+              task.status !== TaskStatus.WAITING && 
+              task.status !== 'SUCCESS' && 
+              task.status !== TaskStatus.SUCCESS && 
+              task.status !== 'FAILED' && 
+              task.status !== TaskStatus.FAILED) {
+            console.log(`自动开始轮询任务 ${task.taskId}`);
+            startPolling(apiKey, task.taskId);
+            setPollingTasks(prev => ({ ...prev, [task.taskId as string]: true }));
+          }
         });
       }
     };
@@ -308,6 +308,11 @@ function App() {
         startPolling(apiKey, data.taskId);
         setPollingTasks(prev => ({ ...prev, [data.taskId as string]: true }));
         messageApi.success('等待中的任务已开始执行！');
+      }
+      
+      // 请求完整任务列表以保持正确排序
+      if (clientId) {
+        requestClientTasks(clientId);
       }
     };
     
