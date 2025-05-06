@@ -37,6 +37,7 @@ export interface WorkflowTask {
   status: TaskStatus | string;
   result?: Record<string, unknown>;
   createdAt: string;
+  uniqueId: string;
   completedAt?: string;
   error?: string;
   nodeInfoList?: NodeInfo[];

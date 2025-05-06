@@ -342,12 +342,12 @@ function App() {
   };
 
   // 修改删除任务的处理函数
-  const handleDeleteTask = async (taskIdOrUniqueId: string, isUniqueId: boolean = false) => {
+  const handleDeleteTask = async (taskIdOrTempId: string, isTemp: boolean = false, task?: WorkflowTask) => {
     // 对于有taskId的任务，停止轮询
-    if (!isUniqueId && taskIdOrUniqueId) {
+    if (!isTemp && taskIdOrTempId) {
       setPollingTasks(prev => {
         const newPollingTasks = { ...prev };
-        delete newPollingTasks[taskIdOrUniqueId];
+        delete newPollingTasks[taskIdOrTempId];
         return newPollingTasks;
       });
     }
@@ -355,14 +355,14 @@ function App() {
     // 从任务列表中移除任务
     setTasks(prevTasks => {
       // 查找要删除的任务，以获取完整信息
-      const taskToDelete = prevTasks.find(task => {
-        if (isUniqueId) {
-          // 使用组件生成的uniqueId删除任务（主要用于WAITING状态的任务）
-          const taskUniqueId = task.taskId || `waiting-task-${prevTasks.indexOf(task)}`;
-          return taskUniqueId === taskIdOrUniqueId;
+      const taskToDelete = task || prevTasks.find(t => {
+        if (isTemp) {
+          // 使用前端临时ID删除任务
+          const taskTempId = t.taskId || `waiting-task-${prevTasks.indexOf(t)}`;
+          return taskTempId === taskIdOrTempId;
         } else {
-          // 使用taskId删除任务（适用于非WAITING状态的任务）
-          return task.taskId === taskIdOrUniqueId;
+          // 使用taskId删除任务
+          return t.taskId === taskIdOrTempId;
         }
       });
       
@@ -371,12 +371,13 @@ function App() {
         // 检查任务状态
         const status = taskToDelete.status;
         const taskId = taskToDelete.taskId;
+        const uniqueId = taskToDelete.uniqueId;
         
         // WAITING状态的任务需要通知服务器从等待队列中删除
         if (status === 'WAITING' || status === TaskStatus.WAITING) {
           // 通知服务器从等待队列中删除任务
           notifyDeleteTask(
-            taskIdOrUniqueId,  // uniqueId
+            uniqueId, // uniqueId
             taskToDelete.taskId || null, // taskId
             taskToDelete.createdAt, // createdAt
             true // isWaiting
@@ -393,7 +394,7 @@ function App() {
                 messageApi.success(`已成功取消任务 ${taskId}`);
                 // 取消成功后也从数据库中删除
                 notifyDeleteTask(
-                  taskIdOrUniqueId,  // uniqueId
+                  uniqueId, // uniqueId
                   taskId, // taskId
                   taskToDelete.createdAt, // createdAt
                   false // isWaiting
@@ -412,7 +413,7 @@ function App() {
                  taskId) {
           // 通知服务器从数据库中删除任务
           notifyDeleteTask(
-            taskIdOrUniqueId,  // uniqueId
+            uniqueId, // uniqueId
             taskId, // taskId
             taskToDelete.createdAt, // createdAt
             false // isWaiting
@@ -421,12 +422,12 @@ function App() {
       }
       
       // 过滤掉要删除的任务
-      return prevTasks.filter(task => {
-        if (isUniqueId) {
-          const taskUniqueId = task.taskId || `waiting-task-${prevTasks.indexOf(task)}`;
-          return taskUniqueId !== taskIdOrUniqueId;
+      return prevTasks.filter(t => {
+        if (isTemp) {
+          const taskTempId = t.taskId || `waiting-task-${prevTasks.indexOf(t)}`;
+          return taskTempId !== taskIdOrTempId;
         } else {
-          return task.taskId !== taskIdOrUniqueId;
+          return t.taskId !== taskIdOrTempId;
         }
       });
     });
@@ -470,7 +471,7 @@ function App() {
                     apiKey={apiKey} 
                     loadingTasks={pollingTasks}
                     onPollingStatusChange={handlePollingStatusChange}
-                    onDeleteTask={(taskIdOrUniqueId, isUniqueId) => handleDeleteTask(taskIdOrUniqueId, isUniqueId)}
+                    onDeleteTask={(taskIdOrTempId, isTemp) => handleDeleteTask(taskIdOrTempId, isTemp)}
                   />
                 </Card>
               </Col>

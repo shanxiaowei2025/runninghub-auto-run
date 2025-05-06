@@ -8,6 +8,7 @@ import cors from 'cors';
 import axios from 'axios';
 import type { Request, Response, NextFunction } from 'express';
 import Database from 'better-sqlite3';
+import crypto from 'node:crypto';
 
 // 获取当前文件的目录
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -40,7 +41,8 @@ db.exec(`
     completedAt TEXT,
     error TEXT,
     nodeInfoList TEXT,
-    socketId TEXT
+    socketId TEXT,
+    uniqueId TEXT
   )
 `);
 
@@ -66,7 +68,8 @@ function checkAndFixDatabaseSchema() {
           completedAt TEXT,
           error TEXT,
           nodeInfoList TEXT,
-          socketId TEXT
+          socketId TEXT,
+          uniqueId TEXT
         )
       `);
       console.log('tasks表创建成功');
@@ -94,7 +97,8 @@ function checkAndFixDatabaseSchema() {
       {name: 'completedAt', type: 'TEXT'},
       {name: 'error', type: 'TEXT'},
       {name: 'nodeInfoList', type: 'TEXT'},
-      {name: 'socketId', type: 'TEXT'}
+      {name: 'socketId', type: 'TEXT'},
+      {name: 'uniqueId', type: 'TEXT'}
     ];
     
     // 检查列名的别名情况（如clientId和client_id）
@@ -159,6 +163,7 @@ interface Task {
   clientId: string;
   status: string;
   createdAt: string;
+  uniqueId: string;
   result: unknown;
   nodeInfoList?: unknown[];
   [key: string]: unknown;  // 添加索引签名以允许动态属性
@@ -171,6 +176,7 @@ interface WorkflowTask {
   workflowId: string;
   nodeInfoList: Record<string, unknown>[];
   createdAt: string;
+  uniqueId: string;
   retryCount?: number; // 添加重试计数器
   clientId?: string; // 添加客户端ID
   pendingProcess?: boolean; // 添加等待处理标记
@@ -204,6 +210,11 @@ function checkColumnExists(tableName: string, columnName: string): boolean {
   }
 }
 
+// 生成UUID函数
+function generateUUID(): string {
+  return crypto.randomUUID();
+}
+
 // 保存任务到数据库
 function saveTaskToDb(task: Record<string, unknown>): number {
   try {
@@ -214,6 +225,12 @@ function saveTaskToDb(task: Record<string, unknown>): number {
     if (!task.clientId) {
       console.error('任务缺少clientId，拒绝保存到数据库');
       return -1;
+    }
+    
+    // 如果没有uniqueId，生成一个
+    if (!task.uniqueId) {
+      task.uniqueId = generateUUID();
+      console.log('为任务生成uniqueId:', task.uniqueId);
     }
     
     // 准备数据 - 将对象转换为JSON字符串
@@ -268,9 +285,10 @@ function saveTaskToDb(task: Record<string, unknown>): number {
     const errorCol = getColumnName('error');
     const nodeInfoListCol = getColumnName('nodeInfoList');
     const socketIdCol = getColumnName('socketId');
+    const uniqueIdCol = getColumnName('uniqueId');
     
     // 打印字段名称（调试用）
-    console.log(`使用的字段名: clientId=${clientIdCol}, taskId=${taskIdCol}, createdAt=${createdAtCol}`);
+    console.log(`使用的字段名: clientId=${clientIdCol}, taskId=${taskIdCol}, createdAt=${createdAtCol}, uniqueId=${uniqueIdCol}`);
     
     // 构建动态SQL语句
     const columnsList = [
@@ -282,10 +300,11 @@ function saveTaskToDb(task: Record<string, unknown>): number {
       completedAtCol, 
       errorCol, 
       nodeInfoListCol, 
-      socketIdCol
+      socketIdCol,
+      uniqueIdCol
     ].join(', ');
     
-    const placeholders = '?, ?, ?, ?, ?, ?, ?, ?, ?';
+    const placeholders = '?, ?, ?, ?, ?, ?, ?, ?, ?, ?';
     
     const sql = `
       INSERT INTO tasks (
@@ -310,7 +329,8 @@ function saveTaskToDb(task: Record<string, unknown>): number {
       task.completedAt || null,
       task.error || null,
       nodeInfoListJson,
-      task.socketId || null
+      task.socketId || null,
+      task.uniqueId
     );
     
     console.log(`任务已保存到数据库，ID: ${info.lastInsertRowid}`);
@@ -323,15 +343,16 @@ function saveTaskToDb(task: Record<string, unknown>): number {
       console.log('尝试使用简化的SQL插入...');
       const basicStmt = db.prepare(`
         INSERT INTO tasks (
-          clientId, status, createdAt
-        ) VALUES (?, ?, ?)
+          clientId, status, createdAt, uniqueId
+        ) VALUES (?, ?, ?, ?)
       `);
       
       // 使用传入的clientId，不使用default
       const info = basicStmt.run(
         task.clientId,
         task.status,
-        task.createdAt
+        task.createdAt,
+        task.uniqueId || generateUUID()
       );
       
       console.log(`使用简化版本保存任务成功，ID: ${info.lastInsertRowid}`);
@@ -353,20 +374,36 @@ function saveTaskToDb(task: Record<string, unknown>): number {
           name === 'clientId' || name === 'client_id' || name.toLowerCase().includes('client')
         );
         
+        const uniqueIdExists = columnNames.includes('uniqueId') || columnNames.includes('unique_id');
+        
         if (clientIdColumn) {
           console.log(`找到clientId对应的列名: ${clientIdColumn}`);
-          const lastStmt = db.prepare(`
-            INSERT INTO tasks (
-              ${clientIdColumn}, status, createdAt
-            ) VALUES (?, ?, ?)
-          `);
+          const lastStmt = uniqueIdExists 
+            ? db.prepare(`
+                INSERT INTO tasks (
+                  ${clientIdColumn}, status, createdAt, uniqueId
+                ) VALUES (?, ?, ?, ?)
+              `)
+            : db.prepare(`
+                INSERT INTO tasks (
+                  ${clientIdColumn}, status, createdAt
+                ) VALUES (?, ?, ?)
+              `);
           
           // 使用传入的clientId，不使用default
-          const info = lastStmt.run(
-            task.clientId,
-            task.status,
-            task.createdAt
-          );
+          const uniqueId = task.uniqueId || generateUUID();
+          const info = uniqueIdExists
+            ? lastStmt.run(
+                task.clientId,
+                task.status,
+                task.createdAt,
+                uniqueId
+              )
+            : lastStmt.run(
+                task.clientId,
+                task.status,
+                task.createdAt
+              );
           
           console.log(`使用真实列名保存任务成功，ID: ${info.lastInsertRowid}`);
           return Number(info.lastInsertRowid);
@@ -418,13 +455,54 @@ export function updateTaskStatus(taskId: string, status: string, completedAt?: s
   }
 }
 
-// 删除任务
-export function deleteTask(taskId?: string, createdAt?: string): boolean {
+// 通过 uniqueId 更新任务状态
+export function updateTaskStatusByUniqueId(uniqueId: string, status: string, completedAt?: string, result?: unknown, error?: string): boolean {
   try {
     let stmt;
     let params;
     
-    if (taskId) {
+    if (result) {
+      const resultJson = JSON.stringify(result);
+      stmt = db.prepare(`
+        UPDATE tasks 
+        SET status = ?, completedAt = ?, result = ?
+        WHERE uniqueId = ?
+      `);
+      params = [status, completedAt || new Date().toISOString(), resultJson, uniqueId];
+    } else if (error) {
+      stmt = db.prepare(`
+        UPDATE tasks 
+        SET status = ?, completedAt = ?, error = ?
+        WHERE uniqueId = ?
+      `);
+      params = [status, completedAt || new Date().toISOString(), error, uniqueId];
+    } else {
+      stmt = db.prepare(`
+        UPDATE tasks 
+        SET status = ?, completedAt = ?
+        WHERE uniqueId = ?
+      `);
+      params = [status, completedAt, uniqueId];
+    }
+    
+    const info = stmt.run(...params);
+    return info.changes > 0;
+  } catch (error) {
+    console.error('通过uniqueId更新任务状态时出错:', error);
+    return false;
+  }
+}
+
+// 删除任务
+export function deleteTask(taskId?: string, createdAt?: string, uniqueId?: string): boolean {
+  try {
+    let stmt;
+    let params;
+    
+    if (uniqueId) {
+      stmt = db.prepare('DELETE FROM tasks WHERE uniqueId = ?');
+      params = [uniqueId];
+    } else if (taskId) {
       stmt = db.prepare('DELETE FROM tasks WHERE taskId = ?');
       params = [taskId];
     } else if (createdAt) {
@@ -456,7 +534,8 @@ function getClientTasks(clientId: string): Task[] {
         ${columnMap.createdAt || 'createdAt'}, 
         ${columnMap.completedAt || 'completedAt'}, 
         ${columnMap.error || 'error'},
-        ${columnMap.nodeInfoList || 'nodeInfoList'}
+        ${columnMap.nodeInfoList || 'nodeInfoList'},
+        ${columnMap.uniqueId || 'uniqueId'}
       FROM tasks 
       WHERE ${columnMap.clientId || 'clientId'} = ?
       ORDER BY ${columnMap.createdAt || 'createdAt'} DESC
@@ -466,11 +545,15 @@ function getClientTasks(clientId: string): Task[] {
     
     // 将结果转换为任务对象数组
     const result = tasks.map(task => {
+      // 确保每个任务都有 uniqueId，如果没有就生成一个
+      const uniqueId = task[columnMap.uniqueId || 'uniqueId'] as string || generateUUID();
+      
       const taskObj: Task = {
         taskId: task[columnMap.taskId || 'taskId'] as string,
         clientId: task[columnMap.clientId || 'clientId'] as string,
         status: task[columnMap.status || 'status'] as string,
         createdAt: task[columnMap.createdAt || 'createdAt'] as string,
+        uniqueId: uniqueId,
         result: null
       };
       
@@ -513,12 +596,12 @@ function getClientTasks(clientId: string): Task[] {
         // 从数据库获取apiKey和workflowId
         const taskDetails = db.prepare(`
           SELECT * FROM tasks
-          WHERE ${columnMap.createdAt || 'createdAt'} = ?
-        `).get(task.createdAt) as Record<string, unknown>;
+          WHERE ${columnMap.uniqueId || 'uniqueId'} = ?
+        `).get(task.uniqueId) as Record<string, unknown>;
         
         if (taskDetails) {
-          // 检查我们是否已经有一个相同createdAt的任务在等待队列中
-          const existingTask = waitingTasks.find(t => t.createdAt === task.createdAt);
+          // 检查我们是否已经有一个相同uniqueId的任务在等待队列中
+          const existingTask = waitingTasks.find(t => t.uniqueId === task.uniqueId);
           if (existingTask) {
             console.log('任务已在等待队列中，不重复添加');
             return;
@@ -580,15 +663,16 @@ function getClientTasks(clientId: string): Task[] {
               workflowId,
               nodeInfoList: task.nodeInfoList as Record<string, unknown>[],
               createdAt: task.createdAt,
+              uniqueId: task.uniqueId,
               clientId: task.clientId
             };
             
             // 检查是否已经在队列中
-            const isInWaitingQueue = waitingTasks.some(t => t.createdAt === waitingTask.createdAt);
-            const isInPendingQueue = pendingTasks.some(t => t.createdAt === waitingTask.createdAt);
+            const isInWaitingQueue = waitingTasks.some(t => t.uniqueId === waitingTask.uniqueId);
+            const isInPendingQueue = pendingTasks.some(t => t.uniqueId === waitingTask.uniqueId);
             
             if (!isInWaitingQueue && !isInPendingQueue) {
-              console.log(`将任务重新添加到等待队列: ${task.createdAt}`);
+              console.log(`将任务重新添加到等待队列: ${task.uniqueId}`);
               waitingTasks.push(waitingTask);
               
               // 尝试处理等待队列中的任务
@@ -604,13 +688,14 @@ function getClientTasks(clientId: string): Task[] {
                 
                 // 广播任务更新状态通知（仅在没有指定socketId时）
                 if (!waitingTask.socketId && connectedSockets.length > 0) {
-                  console.log(`广播任务状态更新通知 (clientId: ${clientId}, createdAt: ${task.createdAt})`);
+                  console.log(`广播任务状态更新通知 (clientId: ${clientId}, uniqueId: ${task.uniqueId})`);
                   
-                  // 广播给所有客户端，客户端会根据clientId和createdAt过滤
+                  // 广播给所有客户端，客户端会根据clientId和uniqueId过滤
                   ioServer.emit('taskRecoveryUpdate', {
                     clientId,
                     createdAt: task.createdAt,
                     originalCreatedAt: task.createdAt,
+                    uniqueId: task.uniqueId,
                     taskId: null,
                     status: 'WAITING', // 保持为WAITING状态，直到真正被处理
                     message: '任务已重新加入处理队列'
@@ -641,6 +726,12 @@ async function trySubmitWaitingTask() {
   // 初始化重试计数（如果不存在）
   if (task.retryCount === undefined) {
     task.retryCount = 0;
+  }
+  
+  // 确保任务有 uniqueId
+  if (!task.uniqueId) {
+    task.uniqueId = generateUUID();
+    console.log('为等待中的任务生成 uniqueId:', task.uniqueId);
   }
   
   try {
@@ -690,11 +781,12 @@ async function trySubmitWaitingTask() {
           originalCreatedAt: task.createdAt,
           taskId: response.data.data.taskId,
           status: response.data.data.taskStatus,
-          createdAt: task.createdAt
+          createdAt: task.createdAt,
+          uniqueId: task.uniqueId
         };
         
         // 更新数据库中的任务
-        // 先基于createdAt查找任务，然后更新taskId和status
+        // 先基于uniqueId查找任务，然后更新taskId和status
         const columnMap = global.columnMapping || {};
         
         // 确保使用正确的列名
@@ -713,6 +805,11 @@ async function trySubmitWaitingTask() {
           taskIdCol = 'task_id';
         }
         
+        let uniqueIdCol = columnMap.uniqueId || 'uniqueId';
+        if (uniqueIdCol === 'uniqueId' && checkColumnExists('tasks', 'unique_id')) {
+          uniqueIdCol = 'unique_id';
+        }
+        
         const statusCol = columnMap.status || 'status';
         
         // 确保任务的clientId不为空
@@ -722,20 +819,20 @@ async function trySubmitWaitingTask() {
           return;
         }
         
+        // 优先使用 uniqueId 更新
         const updateStmt = db.prepare(`
           UPDATE tasks 
           SET ${taskIdCol} = ?, ${statusCol} = ? 
-          WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
+          WHERE ${uniqueIdCol} = ?
         `);
         
         try {
           updateStmt.run(
             response.data.data.taskId,
             response.data.data.taskStatus,
-            task.createdAt,
-            clientIdValue
+            task.uniqueId
           );
-          console.log(`任务状态已更新 [${clientIdValue}]:`, response.data.data.taskStatus);
+          console.log(`任务状态已通过 uniqueId 更新 [${task.uniqueId}]:`, response.data.data.taskStatus);
           
           // 如果有socket连接，通知客户端
           if (socket) {
@@ -756,65 +853,41 @@ async function trySubmitWaitingTask() {
           console.log(`增加处理中任务计数: ${processingTaskCount}`);
         } catch (updateError) {
           console.error('更新任务状态失败:', updateError);
-        }
-      } else {
-        const updateData = {
-          originalCreatedAt: task.createdAt,
-          taskId: null,
-          status: 'SUCCESS',
-          createdAt: task.createdAt
-        };
-        
-        // 更新数据库中的任务
-        const columnMap = global.columnMapping || {};
-        
-        // 确保使用正确的列名
-        let clientIdCol = columnMap.clientId || 'clientId';
-        if (clientIdCol === 'clientId' && checkColumnExists('tasks', 'client_id')) {
-          clientIdCol = 'client_id';
-        }
-        
-        let createdAtCol = columnMap.createdAt || 'createdAt';
-        if (createdAtCol === 'createdAt' && checkColumnExists('tasks', 'created_at')) {
-          createdAtCol = 'created_at';
-        }
-        
-        const statusCol = columnMap.status || 'status';
-        let completedAtCol = columnMap.completedAt || 'completedAt';
-        if (completedAtCol === 'completedAt' && checkColumnExists('tasks', 'completed_at')) {
-          completedAtCol = 'completed_at';
-        }
-        
-        // 确保任务的clientId不为空
-        const clientIdValue = task.clientId;
-        if (!clientIdValue) {
-          console.error('任务的clientId为空，无法更新');
-          return;
-        }
-        
-        const updateStmt = db.prepare(`
-          UPDATE tasks 
-          SET ${statusCol} = ?, ${completedAtCol} = ? 
-          WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
-        `);
-        
-        try {
-          updateStmt.run(
-            'SUCCESS',
-            new Date().toISOString(),
-            task.createdAt,
-            clientIdValue
-          );
-          console.log(`任务已标记为完成 [${clientIdValue}]`);
           
-          // 如果有socket连接，通知客户端
-          if (socket) {
-            socket.emit('workflowStatusUpdate', updateData);
-          } else {
-            console.log('没有活跃的socket连接，跳过客户端通知');
+          // 尝试使用 createdAt 作为备选
+          try {
+            const fallbackUpdateStmt = db.prepare(`
+              UPDATE tasks 
+              SET ${taskIdCol} = ?, ${statusCol} = ? 
+              WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
+            `);
+            
+            fallbackUpdateStmt.run(
+              response.data.data.taskId,
+              response.data.data.taskStatus,
+              task.createdAt,
+              clientIdValue
+            );
+            console.log(`备选方案：任务状态已通过 createdAt 更新 [${clientIdValue}]:`, response.data.data.taskStatus);
+            
+            // 如果有socket连接，通知客户端
+            if (socket) {
+              socket.emit('workflowStatusUpdate', updateData);
+            } else {
+              // 广播给所有客户端
+              ioServer.emit('workflowStatusUpdate', {
+                ...updateData,
+                clientId: clientIdValue,
+                recovered: true
+              });
+            }
+            
+            // 增加计数器
+            processingTaskCount++;
+            console.log(`增加处理中任务计数: ${processingTaskCount}`);
+          } catch (fallbackError) {
+            console.error('备选方案也失败了:', fallbackError);
           }
-        } catch (updateError) {
-          console.error('更新任务状态失败:', updateError);
         }
       }
     } else {
@@ -1080,6 +1153,10 @@ async function createServer() {
           return;
         }
         
+        // 为任务生成唯一ID
+        const uniqueId = generateUUID();
+        console.log('为新工作流生成 uniqueId:', uniqueId);
+        
         // 构建请求参数对象，仅当 nodeInfoList 存在且不为空时才包含
         const requestParams = {
           apiKey,
@@ -1111,6 +1188,7 @@ async function createServer() {
             workflowId: data.workflowId,
             nodeInfoList: data.nodeInfoList,
             createdAt: _timestamp || new Date().toISOString(),
+            uniqueId,
             clientId // 直接使用传入的clientId
           };
           
@@ -1122,6 +1200,7 @@ async function createServer() {
             clientId, // 直接使用传入的clientId
             status: 'WAITING', // 使用字符串WAITING
             createdAt: task.createdAt,
+            uniqueId,
             nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           };
           
@@ -1148,6 +1227,7 @@ async function createServer() {
             workflowId: data.workflowId,
             nodeInfoList: data.nodeInfoList,
             createdAt: _timestamp || new Date().toISOString(),
+            uniqueId,
             clientId // 直接使用传入的clientId
           };
           
@@ -1158,6 +1238,7 @@ async function createServer() {
             clientId, // 直接使用传入的clientId
             status: 'RETRY', // 自定义状态：稍后重试
             createdAt: task.createdAt,
+            uniqueId,
             nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           };
           
@@ -1176,6 +1257,7 @@ async function createServer() {
             clientId, // 直接使用传入的clientId
             status: response.data.data.taskStatus,
             createdAt: _timestamp || new Date().toISOString(),
+            uniqueId,
             nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           };
           
@@ -1189,6 +1271,7 @@ async function createServer() {
             clientId, // 直接使用传入的clientId
             status: 'SUCCESS',
             createdAt: _timestamp || new Date().toISOString(),
+            uniqueId,
             nodeInfoList: data.nodeInfoList // 添加nodeInfoList
           };
           
@@ -1280,7 +1363,10 @@ async function createServer() {
       
       // 从数据库中删除任务
       const columnMap = global.columnMapping || {};
-      if (taskId) {
+      if (uniqueId) {
+        const deleteStmt = db.prepare(`DELETE FROM tasks WHERE ${columnMap.uniqueId || 'uniqueId'} = ?`);
+        deleteStmt.run(uniqueId);
+      } else if (taskId) {
         const deleteStmt = db.prepare(`DELETE FROM tasks WHERE ${columnMap.taskId || 'taskId'} = ?`);
         deleteStmt.run(taskId);
       } else if (createdAt) {
@@ -1288,10 +1374,19 @@ async function createServer() {
         deleteStmt.run(createdAt);
       }
       
-      // 如果是等待中的任务，根据createdAt从等待队列中删除
+      // 如果是等待中的任务，根据uniqueId或createdAt从等待队列中删除
       if (isWaiting) {
-        // 查找任务在等待队列中的索引
-        const taskIndex = waitingTasks.findIndex(task => task.createdAt === createdAt);
+        let taskIndex = -1;
+        
+        // 优先使用 uniqueId 查找
+        if (uniqueId) {
+          taskIndex = waitingTasks.findIndex(task => task.uniqueId === uniqueId);
+        }
+        
+        // 如果未找到且有 createdAt，则使用 createdAt 作为备选
+        if (taskIndex === -1 && createdAt) {
+          taskIndex = waitingTasks.findIndex(task => task.createdAt === createdAt);
+        }
         
         if (taskIndex !== -1) {
           // 从等待队列中移除任务
@@ -1307,7 +1402,7 @@ async function createServer() {
       }
       // 非等待中的任务（有taskId）不需要特别处理，因为它们已经通过API取消
       else if (taskId) {
-        socket.emit('taskDeleted', { taskId, success: true });
+        socket.emit('taskDeleted', { taskId, uniqueId, success: true });
       }
     });
     

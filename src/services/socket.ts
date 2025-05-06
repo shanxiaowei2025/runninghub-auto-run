@@ -53,6 +53,7 @@ export interface WorkflowStatusUpdate {
   taskId: string | null;
   status: string;
   createdAt: string;
+  uniqueId: string;
   error?: string;
 }
 
@@ -97,6 +98,7 @@ export interface TaskRecoveryUpdate {
   clientId: string;
   createdAt: string;
   originalCreatedAt: string;
+  uniqueId: string;
   taskId: string | null;
   status: string;
   message?: string;

@@ -30,9 +30,9 @@ interface PollingTaskListProps {
   onDeleteTask?: (taskIdOrUniqueId: string, isUniqueId: boolean, task?: WorkflowTask) => void;
 }
 
-// 为任务增加唯一标识符
+// 为任务增加前端临时标识符
 interface EnhancedWorkflowTask extends WorkflowTask {
-  uniqueId: string;
+  tempId?: string;
 }
 
 // 自定义统计组件，标题不换行
@@ -148,7 +148,7 @@ export default function PollingTaskList({
   const tasksWithUniqueIds = useMemo<EnhancedWorkflowTask[]>(() => {
     return tasks.map((task, index) => ({
       ...task,
-      uniqueId: task.taskId ? task.taskId : `waiting-task-${index}`
+      tempId: task.taskId ? task.taskId : `waiting-task-${index}`
     }));
   }, [tasks]);
   
@@ -187,10 +187,10 @@ export default function PollingTaskList({
     };
   }, [tasks]);
   
-  // 初始化时设置全部任务展开 - 使用uniqueId
+  // 初始化时设置全部任务展开 - 使用tempId
   useEffect(() => {
     if (tasksWithUniqueIds.length > 0) {
-      setExpandedTasks(tasksWithUniqueIds.map(task => task.uniqueId));
+      setExpandedTasks(tasksWithUniqueIds.map(task => task.tempId));
     }
   }, [tasksWithUniqueIds]);
   
@@ -220,21 +220,21 @@ export default function PollingTaskList({
     updatePollingStatus(taskId, false);
   };
   
-  // 切换展开状态 - 使用uniqueId
-  const handleExpand = (uniqueId: string) => {
+  // 切换展开状态 - 使用tempId
+  const handleExpand = (tempId: string) => {
     setExpandedTasks(prev => 
-      prev.includes(uniqueId) 
-        ? prev.filter(id => id !== uniqueId)
-        : [...prev, uniqueId]
+      prev.includes(tempId) 
+        ? prev.filter(id => id !== tempId)
+        : [...prev, tempId]
     );
   };
   
-  // 切换全部展开/收起 - 使用uniqueId
+  // 切换全部展开/收起 - 使用tempId
   const toggleAllExpanded = () => {
     if (allExpanded) {
       setExpandedTasks([]);
     } else {
-      setExpandedTasks(tasksWithUniqueIds.map(task => task.uniqueId));
+      setExpandedTasks(tasksWithUniqueIds.map(task => task.tempId));
     }
     setAllExpanded(!allExpanded);
   };
@@ -399,14 +399,8 @@ export default function PollingTaskList({
     
     // 调用外部删除函数
     if (onDeleteTask) {
-      // 对于有taskId的普通任务，传递taskId
-      if (task.taskId) {
-        onDeleteTask(task.taskId, false);
-      } 
-      // 对于没有taskId的WAITING状态任务，传递uniqueId作为识别标识，并标记为uniqueId
-      else {
-        onDeleteTask(task.uniqueId, true);
-      }
+      // 使用任务的 tempId
+      onDeleteTask(task.tempId, false, task);
     }
   };
   
@@ -478,7 +472,7 @@ export default function PollingTaskList({
         <List
           dataSource={tasksWithUniqueIds}
           renderItem={(task) => (
-            <List.Item key={task.uniqueId}>
+            <List.Item key={task.tempId}>
               <Card 
                 className="w-full" 
                 size="small"
@@ -491,10 +485,10 @@ export default function PollingTaskList({
                 extra={renderTaskActions(
                   task,
                   !!actualLoadingTasks[task.taskId],
-                  expandedTasks.includes(task.uniqueId),
+                  expandedTasks.includes(task.tempId),
                   () => handleStartPolling(task.taskId),
                   () => handleStopPolling(task.taskId),
-                  () => handleExpand(task.uniqueId),
+                  () => handleExpand(task.tempId),
                   () => handleDeleteTask(task)
                 )}
                 style={{ width: '100%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}
@@ -513,7 +507,7 @@ export default function PollingTaskList({
                     </div>
                   )}
                   
-                  {expandedTasks.includes(task.uniqueId) && (
+                  {expandedTasks.includes(task.tempId) && (
                     <div style={{ marginTop: '16px' }}>
                       {/* 显示节点信息（如果存在） */}
                       {task.nodeInfoList && task.nodeInfoList.length > 0 && 
