@@ -23,13 +23,17 @@ export default function ConnectionStatus() {
     // 注册事件监听
     onConnect(handleConnect);
     onDisconnect(handleDisconnect);
+    
+    if (socket.connected) {
+      handleConnect();
+    }
 
     // 组件卸载时清除监听
     return () => {
       socket.off('connect', handleConnect);
       socket.off('disconnect', handleDisconnect);
     };
-  }, []);
+  }, [socket.connected]);
 
   return (
     <Space align="center">
