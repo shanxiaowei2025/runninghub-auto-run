@@ -20,6 +20,8 @@ export const socketEvents = {
   taskCompleted: 'taskCompleted',
   taskDeleted: 'taskDeleted',
   taskRecoveryUpdate: 'taskRecoveryUpdate',
+  taskQueueMaxed: 'taskQueueMaxed',
+  taskProcessingCompleted: 'taskProcessingCompleted',
 };
 
 // 创建工作流
@@ -108,6 +110,16 @@ export const onTaskRecoveryUpdate = (callback: (data: TaskRecoveryUpdate) => voi
   socket.on(socketEvents.taskRecoveryUpdate, callback);
 };
 
+// 监听任务队列已满事件
+export const onTaskQueueMaxed = (callback: (data: { uniqueId: string, message: string }) => void): void => {
+  socket.on(socketEvents.taskQueueMaxed, callback);
+};
+
+// 监听任务处理完成事件
+export const onTaskProcessingCompleted = (callback: (data: { message: string, taskId: string }) => void): void => {
+  socket.on(socketEvents.taskProcessingCompleted, callback);
+};
+
 // 清除所有事件监听
 export const clearAllListeners = (): void => {
   socket.off(socketEvents.connect);
@@ -118,5 +130,7 @@ export const clearAllListeners = (): void => {
   socket.off(socketEvents.taskCompleted);
   socket.off(socketEvents.taskDeleted);
   socket.off(socketEvents.taskRecoveryUpdate);
+  socket.off(socketEvents.taskQueueMaxed);
+  socket.off(socketEvents.taskProcessingCompleted);
   socket.off('clientTasks');
 }; 

@@ -17,14 +17,16 @@ import {
   onConnect,
   onTaskRecoveryUpdate,
   WorkflowStatusUpdate,
-  TaskRecoveryUpdate
+  TaskRecoveryUpdate,
+  onTaskProcessingCompleted
 } from './services/socket'
 import { 
   pollingEvents, 
   onPollingEvent, 
   clearAllPollingListeners,
-  startPolling 
+  startPolling
 } from './services/taskPolling'
+import { onTaskCompleted } from './services/waitingTaskQueue'
 import { Layout, Typography, Row, Col, Card, message, ConfigProvider, theme } from 'antd'
 import { cancelTask } from './services/taskService'
 import { useClientStore } from './stores/clientStore'
@@ -121,6 +123,21 @@ function App() {
       });
     };
     
+    // 任务完成时检查等待队列
+    const handleTaskCompleted = (taskId: string) => {
+      console.log(`任务 ${taskId} 已完成，检查等待队列...`);
+      
+      // 通知等待队列服务处理下一个任务
+      onTaskCompleted();
+      
+      // 任务完成，更新轮询状态
+      setPollingTasks(prev => {
+        const newPollingTasks = { ...prev };
+        delete newPollingTasks[taskId];
+        return newPollingTasks;
+      });
+    };
+    
     // 处理轮询任务输出结果更新
     const handleTaskOutputsUpdate = (data: PollingTaskResult) => {
       const { taskId, outputs } = data;
@@ -146,6 +163,9 @@ function App() {
       // 任务完成，更新轮询状态
       setPollingTasks(prev => ({ ...prev, [taskId as string]: false }));
       messageApi.success(`轮询到任务 ${taskId} 已完成`);
+      
+      // 任务完成后，尝试处理等待队列中的任务
+      onTaskCompleted();
     };
     
     // 处理轮询任务错误
@@ -171,6 +191,9 @@ function App() {
       // 任务失败，更新轮询状态
       setPollingTasks(prev => ({ ...prev, [taskId as string]: false }));
       messageApi.error(`轮询任务 ${taskId} 失败: ${error}`);
+      
+      // 任务完成后（即使是失败），尝试处理等待队列中的任务
+      onTaskCompleted();
     };
     
     // 处理客户端任务列表
@@ -229,10 +252,14 @@ function App() {
     onPollingEvent(pollingEvents.taskOutputsUpdate, handleTaskOutputsUpdate);
     onPollingEvent(pollingEvents.taskError, handleTaskError);
 
+    // 订阅任务完成事件
+    socket.on(socketEvents.taskCompleted, handleTaskCompleted);
+
     // 组件卸载时清除所有监听
     return () => {
       clearAllListeners();
       clearAllPollingListeners();
+      socket.off(socketEvents.taskCompleted, handleTaskCompleted);
     }
   }, [messageApi, apiKey]);
 
@@ -242,14 +269,14 @@ function App() {
     const handleWorkflowStatusUpdate = (data: WorkflowStatusUpdate) => {
       console.log('收到任务状态更新:', data);
       
-      // 被恢复的任务应该根据clientId和createdAt来匹配
+      // 被恢复的任务应该根据clientId和uniqueId来匹配
       const isRecoveredTask = 'recovered' in data && data.recovered === true;
       
       setTasks(prevTasks => {
         return prevTasks.map(task => {
-          // 如果是恢复的任务，需要匹配clientId和createdAt
+          // 如果是恢复的任务，需要匹配clientId和uniqueId
           if (isRecoveredTask && 'clientId' in data) {
-            if (task.clientId === data.clientId && task.createdAt === data.originalCreatedAt) {
+            if (task.clientId === data.clientId && task.uniqueId === data.uniqueId) {
               // 更新恢复任务的状态
               return {
                 ...task,
@@ -259,8 +286,8 @@ function App() {
               };
             }
           } 
-          // 常规根据原始创建时间匹配任务
-          else if (task.createdAt === data.originalCreatedAt) {
+          // 使用uniqueId而不是createdAt匹配任务
+          else if (task.uniqueId === data.uniqueId) {
             // 更新任务状态和ID，保留nodeInfoList和其他属性
             return {
               ...task,
@@ -296,8 +323,8 @@ function App() {
       // 更新任务状态
       setTasks(prevTasks => {
         return prevTasks.map(task => {
-          // 根据创建时间匹配任务
-          if (task.createdAt === data.createdAt) {
+          // 使用uniqueId匹配任务而不是createdAt
+          if (task.uniqueId === data.uniqueId) {
             return {
               ...task,
               status: data.status,
@@ -326,6 +353,22 @@ function App() {
     };
   }, [apiKey, clientId, messageApi]);
 
+  // 在useEffect中添加任务处理完成监听
+  useEffect(() => {
+    // 当任务处理完成时，处理等待队列
+    const handleTaskProcessingCompleted = (data: { message: string, taskId: string }) => {
+      console.log('收到任务处理完成通知:', data);
+      onTaskCompleted();
+    };
+    
+    // 注册监听器
+    onTaskProcessingCompleted(handleTaskProcessingCompleted);
+    
+    return () => {
+      socket.off(socketEvents.taskProcessingCompleted);
+    };
+  }, []);
+
   // 处理表单提交
   const handleFormSubmit = () => {
     console.log('工作流提交成功');
@@ -342,12 +385,12 @@ function App() {
   };
 
   // 修改删除任务的处理函数
-  const handleDeleteTask = async (taskIdOrTempId: string, isTemp: boolean = false, task?: WorkflowTask) => {
+  const handleDeleteTask = async (taskIdOrUniqueId: string, isUniqueId: boolean = false, task?: WorkflowTask) => {
     // 对于有taskId的任务，停止轮询
-    if (!isTemp && taskIdOrTempId) {
+    if (!isUniqueId && taskIdOrUniqueId) {
       setPollingTasks(prev => {
         const newPollingTasks = { ...prev };
-        delete newPollingTasks[taskIdOrTempId];
+        delete newPollingTasks[taskIdOrUniqueId];
         return newPollingTasks;
       });
     }
@@ -356,13 +399,12 @@ function App() {
     setTasks(prevTasks => {
       // 查找要删除的任务，以获取完整信息
       const taskToDelete = task || prevTasks.find(t => {
-        if (isTemp) {
-          // 使用前端临时ID删除任务
-          const taskTempId = t.taskId || `waiting-task-${prevTasks.indexOf(t)}`;
-          return taskTempId === taskIdOrTempId;
+        if (isUniqueId) {
+          // 使用uniqueId删除任务（适用于WAITING状态）
+          return t.uniqueId === taskIdOrUniqueId;
         } else {
           // 使用taskId删除任务
-          return t.taskId === taskIdOrTempId;
+          return t.taskId === taskIdOrUniqueId;
         }
       });
       
@@ -423,11 +465,10 @@ function App() {
       
       // 过滤掉要删除的任务
       return prevTasks.filter(t => {
-        if (isTemp) {
-          const taskTempId = t.taskId || `waiting-task-${prevTasks.indexOf(t)}`;
-          return taskTempId !== taskIdOrTempId;
+        if (isUniqueId) {
+          return t.uniqueId !== taskIdOrUniqueId;
         } else {
-          return t.taskId !== taskIdOrTempId;
+          return t.taskId !== taskIdOrUniqueId;
         }
       });
     });
@@ -471,7 +512,7 @@ function App() {
                     apiKey={apiKey} 
                     loadingTasks={pollingTasks}
                     onPollingStatusChange={handlePollingStatusChange}
-                    onDeleteTask={(taskIdOrTempId, isTemp) => handleDeleteTask(taskIdOrTempId, isTemp)}
+                    onDeleteTask={(taskIdOrUniqueId, isUniqueId, task) => handleDeleteTask(taskIdOrUniqueId, isUniqueId, task)}
                   />
                 </Card>
               </Col>

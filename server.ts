@@ -859,7 +859,7 @@ async function trySubmitWaitingTask() {
             const fallbackUpdateStmt = db.prepare(`
               UPDATE tasks 
               SET ${taskIdCol} = ?, ${statusCol} = ? 
-              WHERE ${createdAtCol} = ? AND ${clientIdCol} = ?
+              WHERE ${uniqueIdCol} IS NULL AND ${createdAtCol} = ? AND ${clientIdCol} = ?
             `);
             
             fallbackUpdateStmt.run(
@@ -868,7 +868,7 @@ async function trySubmitWaitingTask() {
               task.createdAt,
               clientIdValue
             );
-            console.log(`备选方案：任务状态已通过 createdAt 更新 [${clientIdValue}]:`, response.data.data.taskStatus);
+            console.log(`备选方案：任务状态已通过 clientId 和 createdAt 更新 [${clientIdValue}]:`, response.data.data.taskStatus);
             
             // 如果有socket连接，通知客户端
             if (socket) {
@@ -915,7 +915,8 @@ async function trySubmitWaitingTask() {
           taskId: null,
           status: 'FAILED',
           createdAt: task.createdAt,
-          error: '任务创建失败，请稍后重试'
+          error: '任务创建失败，请稍后重试',
+          uniqueId: task.uniqueId  // 添加uniqueId字段
         };
         
         // 更新数据库中的任务
@@ -1001,7 +1002,8 @@ async function trySubmitWaitingTask() {
         taskId: null,
         status: 'FAILED',
         createdAt: task.createdAt,
-        error: '任务创建失败，请稍后重试'
+        error: '任务创建失败，请稍后重试',
+        uniqueId: task.uniqueId  // 添加uniqueId字段
       };
       
       // 更新数据库中的任务
@@ -1347,6 +1349,14 @@ async function createServer() {
       // 减少正在处理的任务计数
       processingTaskCount--;
       if (processingTaskCount < 0) processingTaskCount = 0;
+      
+      // 广播一条通知给所有客户端，告知任务已完成
+      // 这样前端可以据此处理等待中的任务
+      const notification = {
+        message: '有任务已完成，尝试处理等待中的任务',
+        taskId: data.taskId
+      };
+      ioServer.emit('taskProcessingCompleted', notification);
       
       // 重要：立即尝试处理等待队列中的任务
       if (waitingTasks.length > 0) {

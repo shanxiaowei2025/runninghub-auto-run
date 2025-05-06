@@ -1,4 +1,4 @@
-import { TaskStatus, TaskStatusResponse, TaskOutputsResponse, PollingTaskResult } from '../types';
+import { TaskStatus, TaskStatusResponse, TaskOutputsResponse, PollingTaskResult, NodeInfo, TaskCreateResponse } from '../types';
 import { notifyTaskCompleted, socket } from './socket'; // 导入通知函数和socket对象
 
 // API配置
@@ -13,6 +13,7 @@ export const pollingEvents = {
   taskStatusUpdate: 'taskStatusUpdate',
   taskOutputsUpdate: 'taskOutputsUpdate',
   taskError: 'taskError',
+  taskQueueMaxed: 'taskQueueMaxed', // 新增队列已满事件
 };
 
 // 事件回调集合
@@ -78,6 +79,41 @@ const fetchTaskOutputs = async (apiKey: string, taskId: string): Promise<TaskOut
   } catch (error) {
     console.error('获取任务结果失败:', error);
     throw error;
+  }
+};
+
+// 尝试创建等待中的任务
+export const createWaitingTask = async (apiKey: string, workflowId: string, nodeInfoList: NodeInfo[]): Promise<{success: boolean, code?: number, msg?: string, data?: TaskCreateResponse}> => {
+  try {
+    const requestParams = {
+      apiKey,
+      workflowId,
+      ...(nodeInfoList && nodeInfoList.length > 0 ? { nodeInfoList } : {})
+    };
+    
+    const response = await fetch(`${API_BASE_URL}/task/openapi/create`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Host': 'www.runninghub.cn',
+      },
+      body: JSON.stringify(requestParams),
+    });
+    
+    if (!response.ok) {
+      throw new Error(`HTTP error: ${response.status}`);
+    }
+    
+    const result = await response.json();
+    return {
+      success: result.code === 0 || result.code === 200,
+      code: result.code,
+      msg: result.msg,
+      data: result.data
+    };
+  } catch (error) {
+    console.error('创建等待任务失败:', error);
+    return { success: false, msg: error instanceof Error ? error.message : '创建任务失败' };
   }
 };
 
@@ -249,5 +285,17 @@ export const clearAllPollingListeners = (): void => {
     clearInterval(timerId);
     console.log(`停止轮询任务 ${taskId}`);
   });
+  
+  // 清空轮询任务Map
   pollingTasks.clear();
+};
+
+// 注销特定事件的所有监听器
+export const unregisterEvent = (eventName: string): void => {
+  callbackMap.delete(eventName);
+};
+
+// 获取当前正在轮询的任务数量
+export const getPollingTasksCount = (): number => {
+  return pollingTasks.size;
 }; 

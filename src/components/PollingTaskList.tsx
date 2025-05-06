@@ -399,8 +399,14 @@ export default function PollingTaskList({
     
     // 调用外部删除函数
     if (onDeleteTask) {
-      // 使用任务的 tempId
-      onDeleteTask(task.tempId, false, task);
+      // 对于WAITING状态的任务，使用uniqueId进行删除
+      if ((task.status === TaskStatus.WAITING || task.status === 'WAITING') && task.uniqueId) {
+        // 使用类型断言确保uniqueId是字符串类型
+        onDeleteTask(task.uniqueId as string, true, task);
+      } else if (task.taskId) {
+        // 对于其他状态的任务，使用taskId进行删除
+        onDeleteTask(task.taskId, false, task);
+      }
     }
   };
   
@@ -484,11 +490,11 @@ export default function PollingTaskList({
                 }
                 extra={renderTaskActions(
                   task,
-                  !!actualLoadingTasks[task.taskId],
-                  expandedTasks.includes(task.tempId),
-                  () => handleStartPolling(task.taskId),
-                  () => handleStopPolling(task.taskId),
-                  () => handleExpand(task.tempId),
+                  !!(task.taskId && actualLoadingTasks[task.taskId]),
+                  !!(task.tempId && expandedTasks.includes(task.tempId)),
+                  () => task.taskId && handleStartPolling(task.taskId),
+                  () => task.taskId && handleStopPolling(task.taskId),
+                  () => task.tempId && handleExpand(task.tempId),
                   () => handleDeleteTask(task)
                 )}
                 style={{ width: '100%', boxShadow: '0 1px 2px rgba(0,0,0,0.1)' }}
@@ -501,13 +507,13 @@ export default function PollingTaskList({
                     )}
                   </div>
                   
-                  {actualLoadingTasks[task.taskId] && task.status !== TaskStatus.SUCCESS && (
+                  {task.taskId && actualLoadingTasks[task.taskId] && task.status !== TaskStatus.SUCCESS && (
                     <div style={{ marginTop: '8px' }}>
                       <Spin size="small" /> <Text type="secondary">正在轮询查询任务状态...</Text>
                     </div>
                   )}
                   
-                  {expandedTasks.includes(task.tempId) && (
+                  {task.tempId && expandedTasks.includes(task.tempId) && (
                     <div style={{ marginTop: '16px' }}>
                       {/* 显示节点信息（如果存在） */}
                       {task.nodeInfoList && task.nodeInfoList.length > 0 && 
