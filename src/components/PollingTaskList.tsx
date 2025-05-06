@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Card, Typography, Button, List, Tag, Image, Collapse, Descriptions, Empty, Spin, Divider, Space, Statistic, Row, Col, Tooltip } from 'antd';
+import { Card, Typography, Button, List, Tag, Image, Collapse, Descriptions, Empty, Spin, Divider, Space, Statistic, Row, Col, Tooltip, Modal } from 'antd';
 import { 
   CaretRightOutlined, 
   ReloadOutlined, 
@@ -14,7 +14,8 @@ import {
   SyncOutlined,
   DeleteOutlined,
   EyeOutlined,
-  EyeInvisibleOutlined
+  EyeInvisibleOutlined,
+  ExclamationCircleOutlined
 } from '@ant-design/icons';
 import { WorkflowTask, TaskStatus, TaskOutputItem, NodeInfo } from '../types';
 import { startPolling, stopPolling } from '../services/taskPolling';
@@ -239,6 +240,40 @@ export default function PollingTaskList({
     setAllExpanded(!allExpanded);
   };
   
+  // 删除所有任务
+  const handleDeleteAllTasks = () => {
+    Modal.confirm({
+      title: '确认删除',
+      icon: <ExclamationCircleOutlined />,
+      content: '确定要删除所有任务吗？此操作不可恢复！',
+      okText: '确认删除',
+      okType: 'danger',
+      cancelText: '取消',
+      onOk() {
+        // 先停止所有正在轮询的任务
+        tasksWithUniqueIds.forEach(task => {
+          if (task.taskId && actualLoadingTasks[task.taskId]) {
+            handleStopPolling(task.taskId);
+          }
+        });
+        
+        // 然后删除所有任务
+        if (onDeleteTask) {
+          tasksWithUniqueIds.forEach(task => {
+            // 对于WAITING状态的任务，使用uniqueId进行删除
+            if ((task.status === TaskStatus.WAITING || task.status === 'WAITING') && task.uniqueId) {
+              // 使用类型断言确保uniqueId是字符串类型
+              onDeleteTask(task.uniqueId as string, true, task);
+            } else if (task.taskId) {
+              // 对于其他状态的任务，使用taskId进行删除
+              onDeleteTask(task.taskId, false, task);
+            }
+          });
+        }
+      },
+    });
+  };
+  
   // 获取当前状态的颜色
   const getStatusColor = (status: string): string => {
     switch (status) {
@@ -415,13 +450,23 @@ export default function PollingTaskList({
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
         <Title level={4} style={{ margin: 0 }}>轮询任务列表</Title>
         {tasksWithUniqueIds.length > 0 && (
-          <Button 
-            type="link" 
-            icon={allExpanded ? <UpOutlined /> : <DownOutlined />}
-            onClick={toggleAllExpanded}
-          >
-            {allExpanded ? '收起全部' : '展开全部'}
-          </Button>
+          <Space>
+            <Button 
+              type="link" 
+              icon={allExpanded ? <UpOutlined /> : <DownOutlined />}
+              onClick={toggleAllExpanded}
+            >
+              {allExpanded ? '收起全部' : '展开全部'}
+            </Button>
+            <Button
+              type="link"
+              danger
+              icon={<DeleteOutlined />}
+              onClick={handleDeleteAllTasks}
+            >
+              删除全部
+            </Button>
+          </Space>
         )}
       </div>
       
