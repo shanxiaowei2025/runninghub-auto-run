@@ -28,7 +28,8 @@ export enum TaskStatus {
   FAILED = 'FAILED',
   RUNNING = 'RUNNING',
   QUEUED = 'QUEUED',
-  WAITING = 'WAITING'
+  WAITING = 'WAITING',
+  RETRY = 'RETRY'
 }
 
 export interface WorkflowTask {

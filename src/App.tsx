@@ -430,6 +430,15 @@ function App() {
             true // isWaiting
           );
         } 
+        // RETRY状态的任务使用uniqueId删除
+        else if (status === 'RETRY' || status === TaskStatus.RETRY) {
+          notifyDeleteTask(
+            uniqueId, // uniqueId
+            taskToDelete.taskId || null, // taskId
+            taskToDelete.createdAt, // createdAt
+            true // 将RETRY状态视为等待状态，因为它们都是pending队列中的任务
+          );
+        }
         // QUEUED或RUNNING状态的任务需要调用API取消任务执行
         else if ((status === 'QUEUED' || status === TaskStatus.QUEUED || 
                  status === 'RUNNING' || status === TaskStatus.RUNNING) && 

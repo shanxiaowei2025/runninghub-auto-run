@@ -261,7 +261,8 @@ export default function PollingTaskList({
         if (onDeleteTask) {
           tasksWithUniqueIds.forEach(task => {
             // 对于WAITING状态的任务，使用uniqueId进行删除
-            if ((task.status === TaskStatus.WAITING || task.status === 'WAITING') && task.uniqueId) {
+            if ((task.status === TaskStatus.WAITING || task.status === 'WAITING' || 
+                 task.status === TaskStatus.RETRY || task.status === 'RETRY') && task.uniqueId) {
               // 使用类型断言确保uniqueId是字符串类型
               onDeleteTask(task.uniqueId as string, true, task);
             } else if (task.taskId) {
@@ -278,13 +279,20 @@ export default function PollingTaskList({
   const getStatusColor = (status: string): string => {
     switch (status) {
       case 'QUEUED':
+      case TaskStatus.QUEUED:
         return 'warning';
       case 'RUNNING':
+      case TaskStatus.RUNNING:
         return 'processing';
       case 'SUCCESS':
+      case TaskStatus.SUCCESS:
         return 'success';
       case 'FAILED':
+      case TaskStatus.FAILED:
         return 'error';
+      case 'RETRY':
+      case TaskStatus.RETRY:
+        return 'gold'; // 使用金色表示重试状态
       default:
         return 'default';
     }
@@ -434,8 +442,9 @@ export default function PollingTaskList({
     
     // 调用外部删除函数
     if (onDeleteTask) {
-      // 对于WAITING状态的任务，使用uniqueId进行删除
-      if ((task.status === TaskStatus.WAITING || task.status === 'WAITING') && task.uniqueId) {
+      // 对于WAITING状态或RETRY状态的任务，使用uniqueId进行删除
+      if ((task.status === TaskStatus.WAITING || task.status === 'WAITING' || 
+           task.status === TaskStatus.RETRY || task.status === 'RETRY') && task.uniqueId) {
         // 使用类型断言确保uniqueId是字符串类型
         onDeleteTask(task.uniqueId as string, true, task);
       } else if (task.taskId) {
