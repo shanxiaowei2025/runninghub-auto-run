@@ -133,8 +133,12 @@ function App() {
     const handleTaskCompleted = (taskId: string) => {
       console.log(`任务 ${taskId} 已完成，检查等待队列...`);
       
-      // 通知等待队列服务处理下一个任务
-      onTaskCompleted();
+      // 查找完成的任务，获取其taskInterval
+      const completedTask = tasks.find(task => task.taskId === taskId);
+      const taskInterval = completedTask?.taskInterval as number | undefined;
+      
+      // 通知等待队列服务处理下一个任务，传递间隔时间
+      onTaskCompleted(taskInterval);
       
       // 任务完成，更新轮询状态
       setPollingTasks(prev => {
@@ -151,6 +155,10 @@ function App() {
       console.log('轮询任务输出结果:', taskId, outputs);
       
       if (!outputs) return;
+      
+      // 查找任务获取其taskInterval
+      const currentTask = tasks.find(task => task.taskId === taskId);
+      const taskInterval = currentTask?.taskInterval as number | undefined;
       
       setTasks(prevTasks => {
         return prevTasks.map(task => {
@@ -170,8 +178,8 @@ function App() {
       setPollingTasks(prev => ({ ...prev, [taskId as string]: false }));
       messageApi.success(`轮询到任务 ${taskId} 已完成`);
       
-      // 任务完成后，尝试处理等待队列中的任务
-      onTaskCompleted();
+      // 任务完成后，尝试处理等待队列中的任务，传递间隔时间
+      onTaskCompleted(taskInterval);
       
       // 请求完整任务列表以保持正确排序
       if (clientId) {
@@ -184,6 +192,10 @@ function App() {
       const { taskId, error } = data;
       
       console.error('轮询任务错误:', taskId, error);
+      
+      // 查找任务获取其taskInterval
+      const currentTask = tasks.find(task => task.taskId === taskId);
+      const taskInterval = currentTask?.taskInterval as number | undefined;
       
       setTasks(prevTasks => {
         return prevTasks.map(task => {
@@ -203,8 +215,8 @@ function App() {
       setPollingTasks(prev => ({ ...prev, [taskId as string]: false }));
       messageApi.error(`轮询任务 ${taskId} 失败: ${error}`);
       
-      // 任务完成后（即使是失败），尝试处理等待队列中的任务
-      onTaskCompleted();
+      // 任务完成后（即使是失败），尝试处理等待队列中的任务，传递间隔时间
+      onTaskCompleted(taskInterval);
       
       // 请求完整任务列表以保持正确排序
       if (clientId) {

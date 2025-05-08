@@ -3,3 +3,56 @@ description:
 globs:
 alwaysApply: false
 ---
+# Socket通信服务
+
+Socket通信服务负责与RunningHub服务端建立WebSocket连接，实现实时通信功能。该服务实现在 [src/services/socket.ts](mdc:src/services/socket.ts) 文件中。
+
+## 主要功能
+
+- **Socket连接管理**: 建立、维护和重连WebSocket连接
+- **工作流创建**: 向服务端发送创建工作流请求
+- **事件监听**: 提供多种事件监听接口
+- **任务完成通知**: 向服务端发送任务完成通知
+
+## Socket配置
+
+Socket客户端使用以下配置初始化:
+
+```typescript
+export const socket: Socket = io({
+  reconnection: true,
+  reconnectionAttempts: 5,
+  reconnectionDelay: 1000,
+  reconnectionDelayMax: 5000,
+  timeout: 20000,
+});
+```
+
+## 事件类型
+
+```typescript
+export const socketEvents = {
+  connect: 'connect',
+  disconnect: 'disconnect',
+  workflowCreated: 'workflowCreated',
+  workflowError: 'workflowError',
+  workflowStatusUpdate: 'workflowStatusUpdate',
+  taskCompleted: 'taskCompleted',
+};
+```
+
+## 主要API
+
+- `createWorkflow(data)`: 创建工作流
+- `onConnect(callback)`: 监听连接成功事件
+- `onDisconnect(callback)`: 监听断开连接事件
+- `onWorkflowCreated(callback)`: 监听工作流创建成功事件
+- `onWorkflowError(callback)`: 监听工作流创建错误事件
+- `onWorkflowStatusUpdate(callback)`: 监听工作流状态更新事件
+- `notifyTaskCompleted(taskId)`: 向服务端发送任务完成通知
+
+## 与任务轮询服务的集成
+
+Socket服务与 [src/services/taskPolling.ts](mdc:src/services/taskPolling.ts) 紧密集成:
+- 提供`notifyTaskCompleted`函数供任务轮询服务调用
+- 导出`socket`对象供任务轮询服务检查连接状态

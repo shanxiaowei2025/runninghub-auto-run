@@ -11,6 +11,14 @@ alwaysApply: true
 - **TypeScript 5.7** - 类型安全的JavaScript超集
 - **Vite 6** - 现代前端构建工具
 - **Tailwind CSS 4** - 实用优先的CSS框架
+- **Socket.io** - WebSocket通信库，用于实时通信
+- **Express** - Node.js Web应用框架，用于服务器端实现
+
+## 应用特定功能
+
+- **任务轮询系统** - 使用`taskPolling.ts`定期检查远程任务状态
+- **WebSocket通信** - 使用`socket.ts`通过Socket.io与服务端通信
+- **服务器端渲染** - 使用`vite-plugin-ssr`支持SSR
 
 ## 代码风格指南
 
@@ -21,9 +29,10 @@ alwaysApply: true
 
 ## TypeScript最佳实践
 
-- 尽可能使用明确的类型，避免使用`any`
-- 利用TypeScript的类型推断减少冗余代码
-- 为组件props和状态定义清晰的接口
+- 定义清晰的接口和类型，如`TaskStatus`和`PollingTaskResult`
+- 为API响应创建专用的接口，如`TaskStatusResponse`和`TaskOutputsResponse`
+- 使用枚举定义状态常量，如`TaskStatus`
+- 使用泛型和类型守卫提高代码类型安全性
 
 ## React最佳实践
 
@@ -36,3 +45,10 @@ alwaysApply: true
 
 - 利用Vite的热模块替换(HMR)进行快速开发
 - 使用Vite的构建优化选项提高生产性能
+
+## 服务通信最佳实践
+
+- Socket连接应包含重连机制和超时处理
+- 任务轮询需要错误处理和超时控制
+- 使用事件模式设计服务间通信
+- 为所有异步操作添加适当的错误处理

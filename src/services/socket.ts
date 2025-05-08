@@ -25,7 +25,7 @@ export const socketEvents = {
 };
 
 // 创建工作流
-export const createWorkflow = (data: CreateWorkflowRequest & { clientId?: string }): void => {
+export const createWorkflow = (data: CreateWorkflowRequest & { clientId?: string, taskInterval?: number }): void => {
   socket.emit('createWorkflow', data);
 };
 

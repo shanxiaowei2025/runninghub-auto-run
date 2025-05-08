@@ -12,15 +12,26 @@ alwaysApply: true
 - [src/main.tsx](mdc:src/main.tsx) - 应用程序的入口点，负责渲染根组件
 - [src/App.tsx](mdc:src/App.tsx) - 主应用组件，包含应用的主要布局和路由
 
+## 服务层
+
+- [src/services/socket.ts](mdc:src/services/socket.ts) - WebSocket通信服务，负责与RunningHub服务器建立连接
+- [src/services/taskPolling.ts](mdc:src/services/taskPolling.ts) - 任务轮询服务，用于定期检查远程任务状态
+
+## 类型定义
+
+- [src/types/index.ts](mdc:src/types/index.ts) - 所有类型定义，包括API响应、任务状态和轮询结果等
+- [src/vite-env.d.ts](mdc:src/vite-env.d.ts) - Vite环境的TypeScript类型声明
+
 ## 样式文件
 
 - [src/index.css](mdc:src/index.css) - 全局样式定义
 - [src/App.css](mdc:src/App.css) - App组件特定样式
 
-## 类型定义
+## 服务器端渲染
 
-- [src/vite-env.d.ts](mdc:src/vite-env.d.ts) - Vite环境的TypeScript类型声明
+- [src/entry-client.tsx](mdc:src/entry-client.tsx) - 客户端入口文件
+- [src/entry-server.tsx](mdc:src/entry-server.tsx) - 服务器端渲染入口文件
 
 ## 资源文件
 
-- `src/assets/` - 包含图像、SVG等静态资源
+- `src/assets/`

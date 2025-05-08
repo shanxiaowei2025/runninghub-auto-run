@@ -10,6 +10,7 @@ interface WaitingTask {
   clientId?: string;
   uniqueId?: string;
   createdAt: string;
+  taskInterval?: number;
 }
 
 // 存储等待队列中的任务
@@ -106,12 +107,18 @@ export const processWaitingQueue = async (): Promise<void> => {
 
 /**
  * 当有非等待任务完成时，尝试处理等待队列
+ * @param taskInterval 可选的任务间隔时间（秒）
  */
-export const onTaskCompleted = (): void => {
+export const onTaskCompleted = (taskInterval?: number): void => {
   console.log('任务完成，检查等待队列...');
   if (waitingTasks.length > 0 && !isProcessingWaitingTasks) {
-    // 等待短暂时间后处理，避免请求过于频繁
-    setTimeout(processWaitingQueue, 1000);
+    // 获取下一个任务的间隔时间或使用传入的间隔时间
+    const nextTaskInterval = waitingTasks[0]?.taskInterval !== undefined 
+      ? Number(waitingTasks[0].taskInterval) 
+      : (taskInterval !== undefined ? Number(taskInterval) : 0);
+    
+    console.log(`等待${nextTaskInterval}秒后处理下一个队列任务...`);
+    setTimeout(processWaitingQueue, nextTaskInterval * 1000);
   }
 };
 

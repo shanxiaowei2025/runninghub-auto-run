@@ -180,6 +180,7 @@ interface WorkflowTask {
   retryCount?: number; // 添加重试计数器
   clientId?: string; // 添加客户端ID
   pendingProcess?: boolean; // 添加等待处理标记
+  taskInterval?: number; // 添加任务间隔时间（秒）
 }
 
 // 重试配置
@@ -672,7 +673,9 @@ function getClientTasks(clientId: string): Task[] {
               nodeInfoList: task.nodeInfoList as Record<string, unknown>[],
               createdAt: task.createdAt,
               uniqueId: task.uniqueId,
-              clientId: task.clientId
+              clientId: task.clientId,
+              taskInterval: typeof task.taskInterval === 'number' ? task.taskInterval : 
+                          task.taskInterval !== undefined ? Number(task.taskInterval) : undefined
             };
             
             // 检查是否已经在队列中
@@ -1075,6 +1078,73 @@ async function trySubmitWaitingTask() {
   }
 }
 
+// 检查是否有pending或queued状态的任务
+async function hasPendingOrQueuedTasks(): Promise<boolean> {
+  try {
+    const columnMap = global.columnMapping || {};
+    const statusCol = columnMap.status || 'status';
+    
+    // 检查数据库中是否有pending或queued状态的任务
+    const stmt = db.prepare(`
+      SELECT COUNT(*) as count 
+      FROM tasks 
+      WHERE ${statusCol} IN ('PENDING', 'QUEUED', 'RUNNING')
+    `);
+    
+    const result = stmt.get() as { count: number };
+    return result.count > 0 || processingTaskCount > 0;
+  } catch (error) {
+    console.error('检查pending或queued任务时出错:', error);
+    // 如果出错，假设存在这些任务，以避免错误地处理等待任务
+    return true;
+  }
+}
+
+// 定期检查任务状态，如果没有pending或queued任务，则处理等待队列
+async function checkTasksAndProcessWaiting() {
+  try {
+    // 如果没有等待任务，直接返回
+    if (waitingTasks.length === 0) return;
+    
+    // 检查是否有处于pending或queued状态的任务
+    const hasPendingTasks = await hasPendingOrQueuedTasks();
+    
+    if (!hasPendingTasks) {
+      console.log('未检测到pending或queued状态的任务，开始处理等待队列中的任务...');
+      
+      // 按照创建顺序处理等待队列中的第一个任务
+      // 获取下一个等待任务的间隔时间
+      let nextTaskInterval = 0;
+      if (waitingTasks.length > 0) {
+        // 确保类型是数字
+        const taskIntervalRaw = waitingTasks[0].taskInterval;
+        nextTaskInterval = typeof taskIntervalRaw === 'number' ? taskIntervalRaw : 
+                           taskIntervalRaw !== undefined ? Number(taskIntervalRaw) : 0;
+      }
+      
+      // 计算延迟时间（毫秒）
+      const delayTime = nextTaskInterval * 1000;
+      
+      console.log(`将在 ${nextTaskInterval} 秒后处理队列中最早的等待任务`);
+      setTimeout(() => {
+        console.log(`${nextTaskInterval} 秒延迟结束，开始处理等待任务`);
+        trySubmitWaitingTask();
+      }, delayTime);
+    } else {
+      console.log('存在pending或queued状态的任务，暂不处理等待队列');
+    }
+  } catch (error) {
+    console.error('检查任务状态时出错:', error);
+  }
+}
+
+// 启动定期检查
+function startTaskStatusChecker() {
+  // 每30秒检查一次任务状态
+  setInterval(checkTasksAndProcessWaiting, 30000);
+  console.log('已启动任务状态检查器，每30秒检查一次');
+}
+
 // 创建服务器
 async function createServer() {
   const app = express();
@@ -1151,8 +1221,8 @@ async function createServer() {
     // 创建工作流
     socket.on('createWorkflow', async (data) => {
       try {
-        const { apiKey, workflowId, nodeInfoList, _timestamp, clientId } = data;
-        console.log('收到创建工作流请求:', { workflowId, clientId });
+        const { apiKey, workflowId, nodeInfoList, _timestamp, clientId, taskInterval } = data;
+        console.log('收到创建工作流请求:', { workflowId, clientId, taskInterval });
         
         // 确保clientId不为空，拒绝没有有效clientId的请求
         if (!clientId) {
@@ -1199,7 +1269,8 @@ async function createServer() {
             nodeInfoList: data.nodeInfoList,
             createdAt: _timestamp || new Date().toISOString(),
             uniqueId,
-            clientId // 直接使用传入的clientId
+            clientId, // 直接使用传入的clientId
+            taskInterval: taskInterval || 0 // 添加任务间隔时间参数
           };
           
           waitingTasks.push(task);
@@ -1211,7 +1282,8 @@ async function createServer() {
             status: 'WAITING', // 使用字符串WAITING
             createdAt: task.createdAt,
             uniqueId,
-            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
+            nodeInfoList: data.nodeInfoList, // 添加nodeInfoList
+            taskInterval // 添加任务间隔时间
           };
           
           // 保存任务到数据库
@@ -1221,7 +1293,7 @@ async function createServer() {
           
           // 如果当前没有正在处理的任务，尝试处理这个新的等待任务
           if (processingTaskCount === 0) {
-            setTimeout(trySubmitWaitingTask, 1000);
+            setTimeout(trySubmitWaitingTask, 30000);
           }
           
           return;
@@ -1238,7 +1310,8 @@ async function createServer() {
             nodeInfoList: data.nodeInfoList,
             createdAt: _timestamp || new Date().toISOString(),
             uniqueId,
-            clientId // 直接使用传入的clientId
+            clientId, // 直接使用传入的clientId
+            taskInterval: taskInterval || 0 // 添加任务间隔时间参数
           };
           
           waitingTasks.push(task);
@@ -1249,7 +1322,8 @@ async function createServer() {
             status: 'RETRY', // 自定义状态：稍后重试
             createdAt: task.createdAt,
             uniqueId,
-            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
+            nodeInfoList: data.nodeInfoList, // 添加nodeInfoList
+            taskInterval // 添加任务间隔时间
           };
           
           // 保存任务到数据库
@@ -1262,13 +1336,17 @@ async function createServer() {
         // 成功创建工作流
         // 确保response.data.data存在
         if (response.data.data) {
-          const taskData = {
+          const taskIntervalValue = typeof taskInterval === 'number' ? taskInterval : 
+                                  taskInterval ? Number(taskInterval) : undefined;
+
+          const taskData: Record<string, unknown> = {
             taskId: response.data.data.taskId,
-            clientId, // 直接使用传入的clientId
+            clientId: clientId, // 直接使用传入的clientId
             status: response.data.data.taskStatus,
             createdAt: _timestamp || new Date().toISOString(),
             uniqueId,
-            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
+            nodeInfoList: data.nodeInfoList,
+            taskInterval: taskIntervalValue
           };
           
           // 保存任务到数据库
@@ -1276,13 +1354,14 @@ async function createServer() {
           
           socket.emit('workflowCreated', taskData);
         } else {
-          const taskData = {
+          const taskData: Record<string, unknown> = {
             taskId: null,
             clientId, // 直接使用传入的clientId
             status: 'SUCCESS',
             createdAt: _timestamp || new Date().toISOString(),
             uniqueId,
-            nodeInfoList: data.nodeInfoList // 添加nodeInfoList
+            nodeInfoList: data.nodeInfoList, // 添加nodeInfoList
+            taskInterval: taskInterval || 0 // 添加任务间隔时间
           };
           
           // 保存任务到数据库
@@ -1358,19 +1437,39 @@ async function createServer() {
       processingTaskCount--;
       if (processingTaskCount < 0) processingTaskCount = 0;
       
+      // 获取下一个等待任务的间隔时间
+      let nextTaskInterval = 0;
+      if (waitingTasks.length > 0) {
+        // 确保类型是数字
+        const taskIntervalRaw = waitingTasks[0].taskInterval;
+        nextTaskInterval = typeof taskIntervalRaw === 'number' ? taskIntervalRaw : 
+                        taskIntervalRaw !== undefined ? Number(taskIntervalRaw) : 0;
+      }
+      
+      // 计算延迟时间（毫秒）
+      const delayTime = nextTaskInterval * 1000;
+      
       // 广播一条通知给所有客户端，告知任务已完成
       // 这样前端可以据此处理等待中的任务
       const notification = {
-        message: '有任务已完成，尝试处理等待中的任务',
+        message: `有任务已完成，尝试处理等待中的任务 (延迟 ${nextTaskInterval} 秒)`,
         taskId: data.taskId
       };
       ioServer.emit('taskProcessingCompleted', notification);
       
-      // 重要：立即尝试处理等待队列中的任务
+      // 如果有等待中的任务，立即处理或者按照间隔时间延迟处理
       if (waitingTasks.length > 0) {
-        console.log('收到任务完成通知，立即尝试处理等待任务');
-        // 直接调用，不使用 setTimeout
-        trySubmitWaitingTask();
+        console.log(`收到任务完成通知，将在 ${nextTaskInterval} 秒后尝试处理等待任务`);
+        // 使用配置的延迟时间
+        setTimeout(() => {
+          console.log(`${nextTaskInterval} 秒延迟结束，开始处理等待任务`);
+          trySubmitWaitingTask();
+        }, delayTime);
+      } else {
+        // 如果当前没有等待中的任务，但可能会在后续添加，设置一个定时检查
+        setTimeout(() => {
+          checkTasksAndProcessWaiting();
+        }, 5000); // 5秒后检查一次任务状态
       }
     });
 
@@ -1421,6 +1520,16 @@ async function createServer() {
       // 非等待中的任务（有taskId）不需要特别处理，因为它们已经通过API取消
       else if (taskId) {
         socket.emit('taskDeleted', { taskId, uniqueId, success: true });
+        
+        // 如果删除的是非等待任务，可能是pending或queued状态的任务
+        // 减少处理中的任务计数（安全起见，保证不会小于0）
+        processingTaskCount--;
+        if (processingTaskCount < 0) processingTaskCount = 0;
+        
+        // 在删除任务后立即检查是否可以处理等待队列中的任务
+        setTimeout(() => {
+          checkTasksAndProcessWaiting();
+        }, 1000); // 短暂延迟以确保数据库状态已更新
       }
     });
     
@@ -1493,6 +1602,8 @@ async function createServer() {
   // 启动服务器
   httpServer.listen(PORT, () => {
     console.log(`服务器运行在 http://localhost:${PORT}`);
+    // 启动任务状态检查器
+    startTaskStatusChecker();
   });
 }
 

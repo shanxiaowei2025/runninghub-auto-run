@@ -12,6 +12,7 @@ export interface CreateWorkflowRequest {
   nodeInfoList: NodeInfo[];
   addMetadata?: boolean;
   _timestamp?: string;
+  taskInterval?: number;
 }
 
 export interface TaskCreateResponse {
@@ -42,6 +43,7 @@ export interface WorkflowTask {
   completedAt?: string;
   error?: string;
   nodeInfoList?: NodeInfo[];
+  taskInterval?: number;
 }
 
 // 轮询任务相关类型定义

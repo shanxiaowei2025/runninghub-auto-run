@@ -3,3 +3,103 @@ description:
 globs:
 alwaysApply: false
 ---
+# 类型定义
+
+项目使用TypeScript实现，在 [src/types/index.ts](mdc:src/types/index.ts) 文件中定义了所有核心类型。
+
+## API类型
+
+### 节点信息
+
+```typescript
+export interface NodeInfo {
+  nodeId: string;
+  fieldName: string;
+  fieldValue: string | number | boolean;
+}
+```
+
+### 工作流请求
+
+```typescript
+export interface CreateWorkflowRequest {
+  apiKey: string;
+  workflowId: string;
+  nodeInfoList: NodeInfo[];
+  addMetadata?: boolean;
+}
+```
+
+### 任务创建响应
+
+```typescript
+export interface TaskCreateResponse {
+  netWssUrl: string | null;
+  taskId: string;
+  clientId: string;
+  taskStatus: TaskStatus;
+  promptTips: string;
+}
+```
+
+## 任务状态枚举
+
+```typescript
+export enum TaskStatus {
+  CREATED = 'CREATE',
+  SUCCESS = 'SUCCESS',
+  FAILED = 'FAILED',
+  RUNNING = 'RUNNING',
+  QUEUED = 'QUEUED',
+  WAITING = 'WAITING'
+}
+```
+
+## 轮询相关类型
+
+### 任务状态响应
+
+```typescript
+export interface TaskStatusResponse {
+  code: number;
+  msg: string;
+  data: string;
+}
+```
+
+### 任务输出项
+
+```typescript
+export interface TaskOutputItem {
+  fileUrl: string;
+  fileType: string;
+  taskCostTime: string;
+  nodeId: string;
+}
+```
+
+### 任务输出响应
+
+```typescript
+export interface TaskOutputsResponse {
+  code: number;
+  msg: string;
+  data: TaskOutputItem[];
+}
+```
+
+### 轮询任务结果
+
+```typescript
+export interface PollingTaskResult {
+  taskId: string;
+  status: TaskStatus;
+  outputs?: TaskOutputItem[];
+  error?: string;
+}
+```
+
+## 类型使用示例
+
+- 在`taskPolling.ts`中使用`TaskStatus`和`PollingTaskResult`
+- 在`socket.ts`中使用`CreateWorkflowRequest`和`WorkflowTask`

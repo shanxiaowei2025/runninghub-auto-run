@@ -66,6 +66,7 @@ export interface WorkflowFormData {
   apiKey: string;
   workflowId: string;
   taskGroups: TaskGroup[];
+  taskInterval: number; // 任务创建间隔时间（秒）
 }
 
 // 表单Store接口
@@ -73,6 +74,7 @@ interface WorkflowFormStore {
   formData: WorkflowFormData;
   setApiKey: (apiKey: string) => void;
   setWorkflowId: (workflowId: string) => void;
+  setTaskInterval: (interval: number) => void; // 设置任务间隔时间的方法
   setTaskGroups: (taskGroups: TaskGroup[]) => void;
   addTaskGroup: () => void;
   removeTaskGroup: (groupIndex: number) => void;
@@ -87,6 +89,7 @@ interface WorkflowFormStore {
 const initialFormData: WorkflowFormData = {
   apiKey: '',
   workflowId: '',
+  taskInterval: 0, // 默认间隔为0秒
   taskGroups: [{ 
     nodeInfoList: [],  // 初始状态为空节点列表
     executionCount: 1
@@ -105,6 +108,10 @@ export const useWorkflowFormStore = create<WorkflowFormStore>()(
       
       setWorkflowId: (workflowId: string) => set(state => ({
         formData: { ...state.formData, workflowId }
+      })),
+      
+      setTaskInterval: (interval: number) => set(state => ({
+        formData: { ...state.formData, taskInterval: interval }
       })),
       
       setTaskGroups: (taskGroups: TaskGroup[]) => set(state => ({

@@ -3,3 +3,80 @@ description:
 globs:
 alwaysApply: false
 ---
+# 错误处理策略
+
+项目实现了多层次的错误处理策略，确保应用稳定运行并提供良好的用户体验。
+
+## API请求错误处理
+
+在 [src/services/taskPolling.ts](mdc:src/services/taskPolling.ts) 中，所有API请求都包含完整的错误处理:
+
+```typescript
+try {
+  const response = await fetch(`${API_BASE_URL}/task/openapi/status`, {
+    // 请求配置
+  });
+  
+  if (!response.ok) {
+    throw new Error(`HTTP error: ${response.status}`);
+  }
+  
+  return await response.json();
+} catch (error) {
+  console.error('获取任务状态失败:', error);
+  throw error;
+}
+```
+
+## 任务状态解析错误处理
+
+解析任务状态时有专门的错误处理逻辑:
+
+```typescript
+try {
+  // 状态解析逻辑
+} catch (error) {
+  console.error('解析任务状态失败:', error);
+  return statusData as TaskStatus;
+}
+```
+
+## 轮询任务错误处理
+
+轮询任务主函数包含全面的错误处理:
+
+1. API错误处理
+2. 输出结果获取错误处理
+3. 任务失败状态处理
+
+## Socket连接错误处理
+
+在任务完成通知中检查Socket连接状态:
+
+```typescript
+if (socket.connected) {
+  notifyTaskCompleted(taskId);
+} else {
+  console.warn('Socket断开连接，无法发送任务完成通知');
+}
+```
+
+## 全局错误事件
+
+应用使用自定义事件系统传递错误信息:
+
+```typescript
+triggerEvent(pollingEvents.taskError, {
+  taskId,
+  status: TaskStatus.FAILED,
+  error: error instanceof Error ? error.message : '轮询任务状态失败',
+});
+```
+
+## 错误处理最佳实践
+
+1. 所有API请求都应包含try/catch错误处理
+2. 记录详细的错误信息到控制台
+3. 使用事件系统传递错误到UI层
+4. 检查Socket连接状态以防止通信错误
+5. 对于轮询任务，在出错时停止轮询并通知服务器

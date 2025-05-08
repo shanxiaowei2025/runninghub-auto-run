@@ -5,7 +5,7 @@ alwaysApply: true
 ---
 # 项目概览
 
-这是一个使用 React + TypeScript + Vite 构建的前端应用程序。项目使用了最新的 React 19 以及 TypeScript 5.7，并采用了 Tailwind CSS 进行样式设计。
+这是一个使用 React + TypeScript + Vite 构建的前端应用程序，名为"runninghub-auto-run2"。项目使用了最新的 React 19 以及 TypeScript 5.7，并采用了 Tailwind CSS 进行样式设计。该应用程序主要功能是通过轮询和WebSocket与RunningHub服务进行交互。
 
 ## 主要文件
 
@@ -13,15 +13,20 @@ alwaysApply: true
 - [package.json](mdc:package.json) - 项目依赖和脚本
 - [tsconfig.json](mdc:tsconfig.json) - TypeScript 配置
 - [eslint.config.js](mdc:eslint.config.js) - ESLint 配置
+- [server.ts](mdc:server.ts) - 服务器入口文件
 
 ## 主要目录
 
 - `src/` - 源代码目录
+  - `src/services/` - 服务相关代码，包含Socket和任务轮询逻辑
+  - `src/components/` - React组件
+  - `src/types/` - TypeScript类型定义
 - `public/` - 静态资源目录
-- `node_modules/` - 依赖包目录
+- `dist/` - 构建输出目录
 
 ## 开发指南
 
 - 使用 `pnpm dev` 启动开发服务器
 - 使用 `pnpm build` 构建生产版本
 - 使用 `pnpm lint` 运行代码检查
+- 远程模式开发: `pnpm dev:remote`

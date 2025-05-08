@@ -15,6 +15,7 @@ interface WorkflowFormProps {
 interface FormValues {
   apiKey: string;
   workflowId: string;
+  taskInterval?: number;
 }
 
 export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormProps) {
@@ -24,6 +25,7 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     formData,
     setApiKey,
     setWorkflowId,
+    setTaskInterval,
     addTaskGroup, 
     removeTaskGroup,
     updateExecutionCount,
@@ -42,20 +44,21 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
   useEffect(() => {
     form.setFieldsValue({
       apiKey: formData.apiKey,
-      workflowId: formData.workflowId
+      workflowId: formData.workflowId,
+      taskInterval: formData.taskInterval
     });
     
     // 如果已有API Key，通知父组件
     if (formData.apiKey && onApiKeyChange) {
       onApiKeyChange(formData.apiKey);
     }
-  }, [form, formData.apiKey, formData.workflowId, onApiKeyChange]);
+  }, [form, formData.apiKey, formData.workflowId, formData.taskInterval, onApiKeyChange]);
 
   // 处理单个任务组提交
   const handleSubmitSingleGroup = (groupIndex: number) => {
     // 获取表单当前值
     const formValues = form.getFieldsValue();
-    const { apiKey, workflowId } = formValues;
+    const { apiKey, workflowId, taskInterval } = formValues;
     
     if (!apiKey || !workflowId) {
       message.error('请先填写API密钥和工作流ID');
@@ -71,9 +74,10 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     // 允许空的 nodeInfoList
     setIsSubmitting(true);
     
-    // 保存API Key和workflowId到store
+    // 保存API Key、workflowId和taskInterval到store
     setApiKey(apiKey);
     setWorkflowId(workflowId);
+    setTaskInterval(taskInterval || 0); // 默认值为0
     
     // 通知父组件API Key已更改
     if (onApiKeyChange) {
@@ -89,7 +93,8 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         workflowId,
         nodeInfoList: validNodeInfoList,
         clientId: clientId || undefined,
-        _timestamp: new Date().toISOString()
+        _timestamp: new Date().toISOString(),
+        taskInterval: taskInterval || 0 // 添加任务间隔参数
       };
       
       // 使用Socket.io发送数据
@@ -125,6 +130,10 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     try {
       let totalTasksCreated = 0;
       
+      // 获取任务间隔时间
+      const taskInterval = form.getFieldValue('taskInterval') || 0;
+      setTaskInterval(taskInterval);
+      
       // 处理任务组
       taskGroups.forEach((group) => {
         // 验证当前任务组，过滤掉不完整的nodeInfo
@@ -147,6 +156,7 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
             })),
             clientId: clientId || undefined,
             _timestamp: new Date().toISOString(),
+            taskInterval // 添加任务间隔参数
           };
           
           // 调用 createWorkflow 接口
@@ -180,6 +190,11 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
     }
   };
 
+  // 处理任务间隔时间变化
+  const handleTaskIntervalChange = (value: number | null) => {
+    setTaskInterval(value || 0);
+  };
+
   // 任务组卡片标题样式
   const taskGroupTitleStyle = {
     backgroundColor: '#e6f7ff', // 浅蓝色背景
@@ -206,7 +221,8 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
         onFinish={handleSubmit}
         initialValues={{ 
           apiKey: formData.apiKey, 
-          workflowId: formData.workflowId 
+          workflowId: formData.workflowId,
+          taskInterval: formData.taskInterval
         }}
       >
         <Form.Item
@@ -228,6 +244,26 @@ export default function WorkflowForm({ onSubmit, onApiKeyChange }: WorkflowFormP
           <Input 
             placeholder="输入工作流ID" 
             onChange={(e) => setWorkflowId(e.target.value)}
+          />
+        </Form.Item>
+        
+        <Form.Item
+          name="taskInterval"
+          label="任务间隔时间（秒）"
+          rules={[
+            { 
+              type: 'integer', 
+              min: 0, 
+              message: '请输入大于或等于0的整数' 
+            }
+          ]}
+        >
+          <InputNumber
+            min={0}
+            precision={0} // 不允许小数
+            placeholder="默认为0"
+            onChange={handleTaskIntervalChange}
+            style={{ width: '100%' }}
           />
         </Form.Item>
         

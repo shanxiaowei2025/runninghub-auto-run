@@ -3,3 +3,45 @@ description:
 globs:
 alwaysApply: false
 ---
+# 任务轮询服务
+
+任务轮询服务是应用程序的核心功能之一，负责定期检查远程任务的状态并更新应用状态。该服务实现在 [src/services/taskPolling.ts](mdc:src/services/taskPolling.ts) 文件中。
+
+## 主要功能
+
+- **任务状态轮询**: 定期向RunningHub API请求任务状态
+- **任务结果获取**: 当任务完成时获取输出结果
+- **事件通知**: 通过自定义事件系统通知应用状态变化
+- **Socket通知**: 当任务完成时通过Socket通知服务器
+
+## 关键API
+
+- `startPolling(apiKey, taskId)`: 开始轮询指定任务
+- `stopPolling(taskId)`: 停止轮询指定任务
+- `onPollingEvent(eventName, callback)`: 注册事件监听器
+- `clearAllPollingListeners()`: 清除所有事件监听
+
+## 事件类型
+
+```typescript
+export const pollingEvents = {
+  taskStatusUpdate: 'taskStatusUpdate',
+  taskOutputsUpdate: 'taskOutputsUpdate',
+  taskError: 'taskError',
+};
+```
+
+## 错误处理
+
+轮询服务实现了多层错误处理:
+- API请求错误处理
+- 状态解析错误处理
+- 任务失败处理
+- Socket连接断开处理
+
+## 与Socket服务的集成
+
+轮询服务与 [src/services/socket.ts](mdc:src/services/socket.ts) 紧密集成:
+- 当任务完成时通过`notifyTaskCompleted`通知服务器
+- 检查Socket连接状态以确保通知可以发送
+- 在连接断开时进行适当的错误处理
