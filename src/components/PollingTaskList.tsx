@@ -1,26 +1,16 @@
-import { useState, useEffect, useMemo } from 'react';
-import { Card, Typography, Button, List, Tag, Image, Collapse, Descriptions, Empty, Spin, Divider, Space, Statistic, Row, Col, Tooltip, Modal } from 'antd';
+import React, { useEffect, useState, useMemo } from 'react';
+import { List, Card, Button, Typography, Space, Tag, Divider, Image, Empty, Modal, Collapse, Statistic, Row, Col, Tooltip, Descriptions, Spin } from 'antd';
 import { 
-  CaretRightOutlined, 
-  ReloadOutlined, 
-  StopOutlined, 
-  NodeIndexOutlined, 
-  DownOutlined, 
-  UpOutlined, 
-  CheckCircleOutlined, 
-  ClockCircleOutlined, 
-  AppstoreOutlined,
-  CloseCircleOutlined,
-  SyncOutlined,
-  DeleteOutlined,
-  EyeOutlined,
-  EyeInvisibleOutlined,
-  ExclamationCircleOutlined
+  SyncOutlined, CheckCircleOutlined, CloseCircleOutlined, 
+  UpOutlined, DownOutlined, DeleteOutlined, 
+  PlayCircleOutlined, PauseCircleOutlined, AppstoreOutlined, ClockCircleOutlined,
+  ExclamationCircleOutlined, NodeIndexOutlined
 } from '@ant-design/icons';
-import { WorkflowTask, TaskStatus, TaskOutputItem, NodeInfo } from '../types';
+import { NodeInfo, TaskOutputItem, TaskStatus, WorkflowTask } from '../types';
 import { startPolling, stopPolling } from '../services/taskPolling';
 
-const { Text, Title, Paragraph } = Typography;
+const { Text, Paragraph, Title } = Typography;
+const { confirm } = Modal;
 const { Panel } = Collapse;
 
 interface PollingTaskListProps {
@@ -78,7 +68,7 @@ const renderTaskActions = (task: EnhancedWorkflowTask,
       {isPolling ? (
         <Tooltip title="停止轮询查询任务状态">
           <Button 
-            icon={<StopOutlined />} 
+            icon={<PauseCircleOutlined />} 
             danger
             type="text"
             onClick={onStopPolling}
@@ -87,7 +77,7 @@ const renderTaskActions = (task: EnhancedWorkflowTask,
       ) : (
         <Tooltip title="开始轮询查询任务状态">
           <Button 
-            icon={<ReloadOutlined />} 
+            icon={<PlayCircleOutlined />} 
             type="text"
             onClick={onStartPolling}
             disabled={
@@ -111,7 +101,7 @@ const renderTaskActions = (task: EnhancedWorkflowTask,
       {/* 展开/收起按钮 */}
       <Tooltip title={isExpanded ? "收起详情" : "展开详情"}>
         <Button 
-          icon={isExpanded ? <EyeInvisibleOutlined /> : <EyeOutlined />}
+          icon={isExpanded ? <PauseCircleOutlined /> : <PlayCircleOutlined />}
           type="text"
           onClick={onExpand}
         />
@@ -221,28 +211,34 @@ export default function PollingTaskList({
     updatePollingStatus(taskId, false);
   };
   
-  // 切换展开状态 - 使用tempId
+  // 处理展开/收起详情
   const handleExpand = (tempId: string) => {
-    setExpandedTasks(prev => 
-      prev.includes(tempId) 
-        ? prev.filter(id => id !== tempId)
-        : [...prev, tempId]
-    );
+    if (expandedTasks.includes(tempId)) {
+      // 收起
+      setExpandedTasks(expandedTasks.filter(id => id !== tempId));
+    } else {
+      // 展开
+      const newExpandedTasks = [...expandedTasks, tempId].filter((id): id is string => id !== undefined);
+      setExpandedTasks(newExpandedTasks);
+    }
   };
   
-  // 切换全部展开/收起 - 使用tempId
+  // 切换全部展开/收起
   const toggleAllExpanded = () => {
     if (allExpanded) {
+      // 收起全部
       setExpandedTasks([]);
     } else {
-      setExpandedTasks(tasksWithUniqueIds.map(task => task.tempId));
+      // 展开全部
+      const tempIds = tasksWithUniqueIds.map(task => task.tempId).filter((id): id is string => id !== undefined);
+      setExpandedTasks(tempIds);
     }
     setAllExpanded(!allExpanded);
   };
   
   // 删除所有任务
   const handleDeleteAllTasks = () => {
-    Modal.confirm({
+    confirm({
       title: '确认删除',
       icon: <ExclamationCircleOutlined />,
       content: '确定要删除所有任务吗？此操作不可恢复！',
@@ -403,6 +399,15 @@ export default function PollingTaskList({
                       alt={`输出图片`}
                       style={{ width: '100%' }}
                     />
+                  ) : output.fileType.toLowerCase().match(/mp4|webm|ogg|mov/) ? (
+                    <video
+                      controls
+                      src={output.fileUrl}
+                      style={{ width: '100%' }}
+                      preload="metadata"
+                    >
+                      您的浏览器不支持视频播放
+                    </video>
                   ) : null
                 }
                 style={{ height: '100%' }}
@@ -410,7 +415,9 @@ export default function PollingTaskList({
                 <div>
                   <div>
                     <a href={output.fileUrl} target="_blank" rel="noreferrer">
-                      下载 {output.fileType.toUpperCase()} 文件
+                      {output.fileType.toLowerCase().match(/mp4|webm|ogg|mov/) 
+                        ? `观看${output.fileType.toUpperCase()}视频` 
+                        : `下载 ${output.fileType.toUpperCase()} 文件`}
                     </a>
                   </div>
                   <div style={{ marginTop: '8px' }}>
@@ -422,6 +429,11 @@ export default function PollingTaskList({
                   {output.taskCostTime && (
                     <div>
                       <Text type="secondary">耗时: {output.taskCostTime}秒</Text>
+                    </div>
+                  )}
+                  {output.fileType.toLowerCase().match(/mp4|webm|ogg|mov/) && (
+                    <div style={{ marginTop: '8px' }}>
+                      <Text type="secondary">提示: 可直接在此页面播放视频</Text>
                     </div>
                   )}
                 </div>
